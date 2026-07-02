@@ -75,6 +75,28 @@ const getChatMessages = (chatId) => replizRequest({ method: "GET", url: `/public
 
 const sendChatMessage = (chatId, text) => replizRequest({ method: "POST", url: `/public/chat/${chatId}/message`, data: { type: "text", text } });
 
+// Content statistic — the ONLY place Repliz exposes real like/share counts (Gold+).
+// GET /public/comment only returns statistic.comment, no like/share — this fills the gap.
+const statsCache = new Map(); // key: `${contentId}:${accountId}` -> { data, fetchedAt }
+const STATS_TTL_MS = 5 * 60 * 1000;
+
+async function getContentStatistic(contentId, accountId) {
+  const key = `${contentId}:${accountId}`;
+  const cached = statsCache.get(key);
+  if (cached && Date.now() - cached.fetchedAt < STATS_TTL_MS) return cached.data;
+
+  try {
+    const data = await replizRequest({ method: "GET", url: `/public/content/${contentId}/statistic`, params: { accountId } });
+    statsCache.set(key, { data, fetchedAt: Date.now() });
+    return data;
+  } catch (err) {
+    // Some platforms/content types don't expose stats (404) — treat as zeros instead of failing the poll.
+    const fallback = { like: 0, comment: 0, share: 0 };
+    statsCache.set(key, { data: fallback, fetchedAt: Date.now() });
+    return fallback;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // In-memory store (swap this for Postgres when going to production)
 // ---------------------------------------------------------------------------
@@ -91,26 +113,26 @@ function upsertConversation(conv) {
   return merged;
 }
 
-// Map a Repliz comment doc -> our dashboard's conversation shape
+// Map a Repliz comment doc -> our dashboard's conversation shape.
+// likes/shares start at 0 here and get filled in by enrichWithStatistics() below.
 function normalizeComment(doc) {
-  const stat = doc.content?.statistic || {};
   return {
     id: `comment:${doc._id}`,
     replizId: doc._id,
     kind: "comment",
     type: "comment",
     account: doc.account?.username || doc.account?.name,
+    accountId: doc.account?._id || doc.accountId,
     platform: doc.account?.type, // instagram | threads | facebook | tiktok | youtube | linkedin
     contact: doc.comment?.owner?.name,
     contactAvatar: doc.comment?.owner?.picture,
     preview: doc.comment?.text,
     status: doc.status === "resolved" ? "replied" : "pending",
     time: doc.comment?.createdAt,
-    // NOTE: confirm the exact field names against docs.repliz.com/api/content —
-    // "comment" is confirmed, "like"/"share" are best-guess names, adjust once you see a real payload.
-    likes: stat.like ?? 0,
-    comments: stat.comment ?? 0,
-    shares: stat.share ?? 0,
+    likes: 0,
+    comments: doc.content?.statistic?.comment ?? 0,
+    shares: 0,
+    contentId: doc.content?.id || null,
     post: doc.content
       ? {
           caption: doc.content.title || doc.content.description || "",
@@ -143,6 +165,26 @@ function normalizeChat(doc) {
   };
 }
 
+// For each comment, look up real like/share numbers via the content statistic
+// endpoint — deduped per contentId+accountId so we don't hammer the API when
+// many comments belong to the same post.
+async function enrichWithStatistics(comments) {
+  const seen = new Map(); // `${contentId}:${accountId}` -> stats
+  for (const c of comments) {
+    if (!c.contentId || !c.accountId) continue;
+    const key = `${c.contentId}:${c.accountId}`;
+    if (!seen.has(key)) {
+      const stat = await getContentStatistic(c.contentId, c.accountId);
+      seen.set(key, stat);
+    }
+    const stat = seen.get(key);
+    c.likes = stat.like ?? 0;
+    c.shares = stat.share ?? 0;
+    if (stat.comment != null) c.comments = stat.comment;
+  }
+  return comments;
+}
+
 // ---------------------------------------------------------------------------
 // Polling worker
 // ---------------------------------------------------------------------------
@@ -152,7 +194,9 @@ let io; // set once the socket server is created
 async function pollOnce() {
   try {
     const commentRes = await getComments({ status: "pending" });
-    const changedComments = (commentRes.docs || []).map(normalizeComment).map(upsertConversation);
+    const normalizedComments = (commentRes.docs || []).map(normalizeComment);
+    await enrichWithStatistics(normalizedComments);
+    const changedComments = normalizedComments.map(upsertConversation);
 
     let changedChats = [];
     try {
