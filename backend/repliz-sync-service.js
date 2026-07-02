@@ -62,6 +62,25 @@ async function replizRequest(config, attempt = 1) {
 
 const getAccounts = () => replizRequest({ method: "GET", url: "/public/account", params: { page: 1, limit: 100 } });
 
+// Webhook payloads only include `accountId` (a string), not the full nested
+// `account` object that polling responses have. This cache lets us resolve
+// account name/platform for webhook-triggered comments/chats.
+const accountsCache = new Map(); // accountId -> { username, name, type }
+
+function cacheAccount(account) {
+  if (account?._id) accountsCache.set(account._id, account);
+}
+
+async function loadAccountsCache() {
+  try {
+    const data = await getAccounts();
+    (data.docs || []).forEach(cacheAccount);
+    console.log(`Accounts cache loaded: ${accountsCache.size} accounts`);
+  } catch (err) {
+    console.warn("Failed to load accounts cache:", err.message);
+  }
+}
+
 const getComments = (params) => replizRequest({ method: "GET", url: "/public/comment", params: { page: 1, limit: 50, status: "pending", ...params } });
 
 // Loops through every page of pending comments/chats instead of only page 1 —
@@ -132,14 +151,16 @@ function upsertConversation(conv) {
 // Map a Repliz comment doc -> our dashboard's conversation shape.
 // likes/shares start at 0 here and get filled in by enrichWithStatistics() below.
 function normalizeComment(doc) {
+  const account = doc.account || accountsCache.get(doc.accountId);
+  if (doc.account) cacheAccount(doc.account);
   return {
     id: `comment:${doc._id}`,
     replizId: doc._id,
     kind: "comment",
     type: "comment",
-    account: doc.account?.username || doc.account?.name,
+    account: account?.username || account?.name || "unknown",
     accountId: doc.account?._id || doc.accountId,
-    platform: doc.account?.type, // instagram | threads | facebook | tiktok | youtube | linkedin
+    platform: account?.type || "instagram",
     contact: doc.comment?.owner?.name,
     contactAvatar: doc.comment?.owner?.picture,
     preview: doc.comment?.text,
@@ -161,13 +182,15 @@ function normalizeComment(doc) {
 
 // Map a Repliz chat doc -> our dashboard's conversation shape
 function normalizeChat(doc) {
+  const account = doc.account || accountsCache.get(doc.accountId);
+  if (doc.account) cacheAccount(doc.account);
   return {
     id: `chat:${doc._id}`,
     replizId: doc._id,
     kind: "chat",
     type: "dm",
-    account: doc.account?.username || doc.account?.name,
-    platform: doc.account?.type,
+    account: account?.username || account?.name || "unknown",
+    platform: account?.type || "instagram",
     contact: doc.senderName,
     contactAvatar: doc.senderPicture,
     preview: doc.lastMessage?.text,
@@ -424,5 +447,5 @@ io.on("connection", (socket) => {
 
 server.listen(PORT, () => {
   console.log(`Prof Admin sync service running on :${PORT}`);
-  startPolling();
+  loadAccountsCache().then(startPolling);
 });
