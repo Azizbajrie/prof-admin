@@ -64,6 +64,21 @@ const getAccounts = () => replizRequest({ method: "GET", url: "/public/account",
 
 const getComments = (params) => replizRequest({ method: "GET", url: "/public/comment", params: { page: 1, limit: 50, status: "pending", ...params } });
 
+// Loops through every page of pending comments/chats instead of only page 1 —
+// otherwise anything beyond the first `limit` items never gets synced once
+// the pending count grows past that.
+async function getAllPages(fetchPageFn, maxPages = 10) {
+  let page = 1;
+  let all = [];
+  while (page <= maxPages) {
+    const res = await fetchPageFn(page);
+    all = all.concat(res.docs || []);
+    if (!res.hasNextPage) break;
+    page += 1;
+  }
+  return all;
+}
+
 const replyComment = (commentId, text) => replizRequest({ method: "POST", url: `/public/comment/${commentId}`, data: { text } });
 
 const updateCommentStatus = (commentId, status) => replizRequest({ method: "PATCH", url: `/public/comment/${commentId}/status`, data: { status } });
@@ -194,15 +209,19 @@ let io; // set once the socket server is created
 
 async function pollOnce() {
   try {
-    const commentRes = await getComments({ status: "pending" });
-    const normalizedComments = (commentRes.docs || []).map(normalizeComment);
+    const commentDocs = await getAllPages((page) =>
+      replizRequest({ method: "GET", url: "/public/comment", params: { page, limit: 50, status: "pending" } })
+    );
+    const normalizedComments = commentDocs.map(normalizeComment);
     await enrichWithStatistics(normalizedComments);
     const changedComments = normalizedComments.map(upsertConversation);
 
     let changedChats = [];
     try {
-      const chatRes = await getChats({ status: "unreplied" });
-      changedChats = (chatRes.docs || []).map(normalizeChat).map(upsertConversation);
+      const chatDocs = await getAllPages((page) =>
+        replizRequest({ method: "GET", url: "/public/chat", params: { page, limit: 50, status: "unreplied" } })
+      );
+      changedChats = chatDocs.map(normalizeChat).map(upsertConversation);
     } catch (chatErr) {
       // Likely means the account isn't on Gold+ tier — don't crash the whole poll loop.
       console.warn("Chat polling skipped:", chatErr.response?.data?.message || chatErr.message);
@@ -276,7 +295,9 @@ app.post("/api/inbox/:id/reply", async (req, res) => {
     io?.emit("inbox:update", [conv]);
     res.json(conv);
   } catch (err) {
-    res.status(502).json({ message: "failed to send reply via Repliz", detail: err.response?.data || err.message });
+    const detail = err.response?.data || err.message;
+    console.error(`Reply failed for ${conv.id}:`, JSON.stringify(detail));
+    res.status(502).json({ message: "failed to send reply via Repliz", detail });
   }
 });
 
