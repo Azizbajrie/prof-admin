@@ -354,8 +354,9 @@ export default function ProfAdmin() {
       .then(async (res) => {
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
-          const detail = typeof body.detail === "string" ? body.detail : body.detail?.message || JSON.stringify(body.detail || "");
-          throw new Error(detail || body.message || "failed");
+          const detailText = typeof body.detail === "string" ? body.detail : body.detail?.message || JSON.stringify(body.detail || "");
+          const label = detailText && detailText !== '""' ? detailText : `HTTP ${body.status || res.status}`;
+          throw new Error(label);
         }
       })
       .catch((err) => setReplyError(`${s.replyFailed} ${err.message ? `(${err.message})` : ""}`));
