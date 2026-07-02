@@ -260,6 +260,23 @@ async function pollOnce() {
   }
 }
 
+// One-time on boot: load the FULL chat history (not just unreplied ones), so
+// old DMs that were already answered elsewhere still show up in the inbox.
+// Regular polling afterward only re-checks "unreplied" for live updates.
+async function backfillAllChats() {
+  try {
+    const chatDocs = await getAllPages(
+      (page) => replizRequest({ method: "GET", url: "/public/chat", params: { page, limit: 50 } }),
+      20 // up to 1000 chats total
+    );
+    chatDocs.map(normalizeChat).forEach(upsertConversation);
+    console.log(`Chat backfill loaded: ${chatDocs.length} conversations`);
+    if (io) io.emit("inbox:update", Array.from(store.conversations.values()));
+  } catch (err) {
+    console.warn("Chat backfill skipped:", err.response?.data?.message || err.message);
+  }
+}
+
 function startPolling() {
   pollOnce();
   setInterval(pollOnce, POLL_INTERVAL_MS);
@@ -447,5 +464,5 @@ io.on("connection", (socket) => {
 
 server.listen(PORT, () => {
   console.log(`Prof Admin sync service running on :${PORT}`);
-  loadAccountsCache().then(startPolling);
+  loadAccountsCache().then(backfillAllChats).then(startPolling);
 });
