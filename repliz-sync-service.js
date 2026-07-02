@@ -93,6 +93,7 @@ function upsertConversation(conv) {
 
 // Map a Repliz comment doc -> our dashboard's conversation shape
 function normalizeComment(doc) {
+  const stat = doc.content?.statistic || {};
   return {
     id: `comment:${doc._id}`,
     replizId: doc._id,
@@ -105,10 +106,14 @@ function normalizeComment(doc) {
     preview: doc.comment?.text,
     status: doc.status === "resolved" ? "replied" : "pending",
     time: doc.comment?.createdAt,
+    // NOTE: confirm the exact field names against docs.repliz.com/api/content —
+    // "comment" is confirmed, "like"/"share" are best-guess names, adjust once you see a real payload.
+    likes: stat.like ?? 0,
+    comments: stat.comment ?? 0,
+    shares: stat.share ?? 0,
     post: doc.content
       ? {
           caption: doc.content.title || doc.content.description || "",
-          stat: `${doc.content.statistic?.comment ?? 0} komentar`,
           thumbnail: doc.content.medias?.[0]?.thumbnail || null,
         }
       : null,
@@ -130,6 +135,9 @@ function normalizeChat(doc) {
     preview: doc.lastMessage?.text,
     status: doc.unreadCount > 0 ? "pending" : "replied",
     time: doc.lastMessage?.sendAt,
+    likes: 0,
+    comments: 0,
+    shares: 0,
     post: null, // DMs aren't tied to a specific post
     thread: [], // fetched lazily via /api/inbox/:id/thread
   };
