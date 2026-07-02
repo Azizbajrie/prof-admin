@@ -300,14 +300,16 @@ export default function ProfAdmin() {
   const accountNames = useMemo(() => Array.from(new Set(data.map((c) => c.account))), [data]);
 
   const filtered = useMemo(() => {
-    return data.filter((c) => {
-      if (typeFilter !== "all" && c.type !== typeFilter) return false;
-      if (statusFilter !== "all" && c.status !== statusFilter) return false;
-      if (accountFilter !== "all" && c.account !== accountFilter) return false;
-      if (platformFilter !== "all" && c.platform !== platformFilter) return false;
-      if (query && !(`${c.contact} ${c.preview} ${c.account}`.toLowerCase().includes(query.toLowerCase()))) return false;
-      return true;
-    });
+    return data
+      .filter((c) => {
+        if (typeFilter !== "all" && c.type !== typeFilter) return false;
+        if (statusFilter !== "all" && c.status !== statusFilter) return false;
+        if (accountFilter !== "all" && c.account !== accountFilter) return false;
+        if (platformFilter !== "all" && c.platform !== platformFilter) return false;
+        if (query && !(`${c.contact} ${c.preview} ${c.account}`.toLowerCase().includes(query.toLowerCase()))) return false;
+        return true;
+      })
+      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
   }, [data, typeFilter, statusFilter, accountFilter, platformFilter, query]);
 
   const selected = data.find((c) => c.id === selectedId) || filtered[0];
