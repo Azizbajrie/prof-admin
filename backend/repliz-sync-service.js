@@ -351,6 +351,56 @@ app.delete("/api/admins/:name", (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Webhook receiver — Repliz pushes new comments/messages here in real-time.
+// Configure this URL + token in Repliz > Setting > Webhook.
+// ---------------------------------------------------------------------------
+
+const WEBHOOK_TOKEN = process.env.REPLIZ_WEBHOOK_TOKEN || "";
+
+app.post("/webhooks/repliz", async (req, res) => {
+  // Verify the request really came from Repliz (they send the token via x-token header).
+  if (WEBHOOK_TOKEN && req.header("x-token") !== WEBHOOK_TOKEN) {
+    return res.status(401).json({ message: "invalid webhook token" });
+  }
+
+  const { type, data } = req.body || {};
+
+  try {
+    if (type === "comment" && data) {
+      const normalized = normalizeComment(data);
+      await enrichWithStatistics([normalized]);
+      const conv = upsertConversation(normalized);
+      io?.emit("inbox:update", [conv]);
+      console.log(`Webhook: new comment from ${conv.contact} on ${conv.account}`);
+    } else if (type === "chat" && data?.chat) {
+      const normalized = normalizeChat(data.chat);
+      const existing = store.conversations.get(normalized.id);
+      // Keep any thread we already loaded, then append the new message so it
+      // shows up immediately without needing another fetch.
+      normalized.thread = existing?.thread || [];
+      if (data.message) {
+        normalized.thread = [
+          ...normalized.thread,
+          {
+            from: data.message.isFromMe ? "admin" : "contact",
+            text: data.message.text,
+            time: data.message.createdAt,
+          },
+        ];
+      }
+      const conv = upsertConversation(normalized);
+      io?.emit("inbox:update", [conv]);
+      console.log(`Webhook: new chat message from ${conv.contact} on ${conv.account}`);
+    }
+    // "schedule" and other webhook types are ignored — not relevant to the inbox.
+    res.status(200).json({ ok: true });
+  } catch (err) {
+    console.error("Webhook processing failed:", err.message);
+    res.status(200).json({ ok: true }); // still 200 so Repliz doesn't retry-storm us
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
 
