@@ -295,9 +295,10 @@ app.post("/api/inbox/:id/reply", async (req, res) => {
     io?.emit("inbox:update", [conv]);
     res.json(conv);
   } catch (err) {
+    const status = err.response?.status;
     const detail = err.response?.data || err.message;
-    console.error(`Reply failed for ${conv.id}:`, JSON.stringify(detail));
-    res.status(502).json({ message: "failed to send reply via Repliz", detail });
+    console.error(`Reply failed for ${conv.id} (status ${status}):`, JSON.stringify(detail));
+    res.status(502).json({ message: "failed to send reply via Repliz", status, detail });
   }
 });
 
