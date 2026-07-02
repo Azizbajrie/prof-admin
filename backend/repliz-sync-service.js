@@ -277,10 +277,20 @@ app.get("/api/inbox/:id", async (req, res) => {
 
 // POST reply — routes to the right Repliz endpoint depending on comment vs DM
 app.post("/api/inbox/:id/reply", async (req, res) => {
-  const conv = store.conversations.get(req.params.id);
   const { text } = req.body;
-  if (!conv) return res.status(404).json({ message: "not found" });
   if (!text?.trim()) return res.status(400).json({ message: "text is required" });
+
+  // Prefer whatever's cached (has full thread history etc), but don't require
+  // it — the in-memory store resets on every deploy, so fall back to parsing
+  // the kind + Repliz ID straight out of the conversation id itself.
+  let conv = store.conversations.get(req.params.id);
+  if (!conv) {
+    const [kind, replizId] = req.params.id.split(":");
+    if ((kind !== "comment" && kind !== "chat") || !replizId) {
+      return res.status(404).json({ message: "not found" });
+    }
+    conv = { id: req.params.id, kind, type: kind === "comment" ? "comment" : "dm", replizId, thread: [], status: "pending" };
+  }
 
   try {
     if (conv.kind === "comment") {
