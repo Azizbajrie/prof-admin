@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
+import { io } from "socket.io-client";
 import {
   Search, MessageCircle, Mail, Heart, Share2, Clock, Send,
   LayoutDashboard, Inbox, Users, Settings, ChevronDown,
@@ -170,6 +171,7 @@ const STRINGS = {
     language: "Bahasa", theme: "Tampilan", dark: "Gelap", light: "Terang", indonesian: "Indonesia", english: "English",
     adminList: "Daftar admin", adminAdd: "Tambah admin", adminPlaceholder: "Nama admin baru...",
     adminEmpty: "Belum ada admin, tambahin dulu di atas.",
+    demoWarning: "Nggak bisa konek ke server Repliz — nampilin data contoh dulu.",
   },
   en: {
     tagline: "Manage millions of your engagements",
@@ -200,6 +202,7 @@ const STRINGS = {
     language: "Language", theme: "Appearance", dark: "Dark", light: "Light", indonesian: "Indonesia", english: "English",
     adminList: "Admin list", adminAdd: "Add admin", adminPlaceholder: "New admin name...",
     adminEmpty: "No admins yet, add one above.",
+    demoWarning: "Can't reach the Repliz server — showing sample data instead.",
   },
 };
 
@@ -214,6 +217,10 @@ function TypeIcon({ type, className }) {
 // Main component
 // ---------------------------------------------------------------------------
 
+// Backend URL — set VITE_API_URL in Vercel once the backend is deployed on Railway.
+// Falls back to localhost so local testing still works without extra setup.
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+
 export default function ProfAdmin() {
   const [themeMode, setThemeMode] = useState("dark");
   const [lang, setLang] = useState("id");
@@ -227,13 +234,43 @@ export default function ProfAdmin() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [accountFilter, setAccountFilter] = useState("all");
   const [platformFilter, setPlatformFilter] = useState("all");
-  const [selectedId, setSelectedId] = useState(CONVERSATIONS[0].id);
+  const [selectedId, setSelectedId] = useState(null);
   const [reply, setReply] = useState("");
-  const [data, setData] = useState(CONVERSATIONS);
+  const [data, setData] = useState([]);
+  const [connectionError, setConnectionError] = useState(false);
   const [showPost, setShowPost] = useState(true);
   const [period, setPeriod] = useState("today");
   const [admins, setAdmins] = useState(DEFAULT_ADMINS);
   const [newAdminName, setNewAdminName] = useState("");
+
+  // Load the inbox once on mount, then keep it live via WebSocket.
+  useEffect(() => {
+    fetch(`${API_URL}/api/inbox`)
+      .then((res) => res.json())
+      .then((docs) => {
+        setData(docs);
+        setConnectionError(false);
+        if (docs.length) setSelectedId((cur) => cur ?? docs[0].id);
+      })
+      .catch(() => {
+        setConnectionError(true);
+        setData(CONVERSATIONS);
+        setSelectedId(CONVERSATIONS[0].id);
+      });
+
+    const socket = io(API_URL);
+    socket.on("inbox:update", (changed) => {
+      setData((prev) => {
+        const map = new Map(prev.map((c) => [c.id, c]));
+        changed.forEach((c) => map.set(c.id, c));
+        return Array.from(map.values());
+      });
+      setConnectionError(false);
+    });
+    socket.on("connect_error", () => setConnectionError(true));
+
+    return () => socket.disconnect();
+  }, []);
 
   function addAdmin() {
     const name = newAdminName.trim();
@@ -268,19 +305,31 @@ export default function ProfAdmin() {
 
   function sendReply() {
     if (!reply.trim() || !selected) return;
+    const text = reply.trim();
+    setReply("");
+    // Optimistic update so the admin sees it instantly, then confirm with the backend.
     setData((prev) =>
       prev.map((c) =>
         c.id === selected.id
-          ? { ...c, status: "replied", unread: false, thread: [...c.thread, { from: "admin", text: reply.trim(), time: "now" }] }
+          ? { ...c, status: "replied", unread: false, thread: [...c.thread, { from: "admin", text, time: "now" }] }
           : c
       )
     );
-    setReply("");
+    fetch(`${API_URL}/api/inbox/${encodeURIComponent(selected.id)}/reply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    }).catch(() => setConnectionError(true));
   }
 
   function claim(adminName) {
     if (!selected) return;
-    setData((prev) => prev.map((c) => (c.id === selected.id ? { ...c, assignedTo: adminName } : c)));
+    setData((prev) => prev.map((c) => (c.id === selected.id ? { ...c, assignedTo: adminName || null } : c)));
+    fetch(`${API_URL}/api/inbox/${encodeURIComponent(selected.id)}/assign`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ adminName: adminName || null }),
+    }).catch(() => setConnectionError(true));
   }
 
   // --- Dashboard aggregates ---
@@ -333,7 +382,13 @@ export default function ProfAdmin() {
   ];
 
   return (
-    <div className={`w-full min-h-screen flex text-sm ${t.page}`}>
+    <div className={`w-full min-h-screen flex flex-col text-sm ${t.page}`}>
+      {connectionError && (
+        <div className="w-full bg-amber-900/60 border-b border-amber-700 text-amber-200 text-xs px-4 py-2 flex items-center gap-2 shrink-0">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {s.demoWarning}
+        </div>
+      )}
+      <div className="flex flex-1 min-h-0">
       {/* Sidebar */}
       <div className={`w-56 shrink-0 border-r flex flex-col py-5 px-3 gap-1 ${t.sidebar}`}>
         <div className="px-2 mb-6">
@@ -852,6 +907,7 @@ export default function ProfAdmin() {
           )}
         </>
       )}
+      </div>
     </div>
   );
 }
