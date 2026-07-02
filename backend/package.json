@@ -1,0 +1,17 @@
+{
+  "name": "prof-admin-backend",
+  "private": true,
+  "version": "0.0.1",
+  "type": "commonjs",
+  "main": "repliz-sync-service.js",
+  "scripts": {
+    "start": "node repliz-sync-service.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "axios": "^1.7.2",
+    "socket.io": "^4.7.5",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5"
+  }
+}
