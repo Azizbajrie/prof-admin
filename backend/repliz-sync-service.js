@@ -104,6 +104,7 @@ async function getContentStatistic(contentId, accountId) {
 const store = {
   conversations: new Map(), // key: `${type}:${replizId}` -> normalized conversation
   assignments: new Map(),   // key: same -> admin name
+  admins: ["Aziz", "Nadia", "Dimas"], // shared roster, persists across refreshes/browsers
 };
 
 function upsertConversation(conv) {
@@ -300,6 +301,33 @@ app.get("/api/accounts", async (req, res) => {
   }
 });
 
+// Admin roster — shared across everyone using the dashboard.
+app.get("/api/admins", (req, res) => {
+  res.json(store.admins);
+});
+
+app.post("/api/admins", (req, res) => {
+  const name = (req.body?.name || "").trim();
+  if (!name) return res.status(400).json({ message: "name is required" });
+  if (!store.admins.includes(name)) store.admins.push(name);
+  io?.emit("admins:update", store.admins);
+  res.json(store.admins);
+});
+
+app.delete("/api/admins/:name", (req, res) => {
+  const name = decodeURIComponent(req.params.name);
+  store.admins = store.admins.filter((a) => a !== name);
+  // Unassign any conversations that were sitting with this admin.
+  store.conversations.forEach((c) => {
+    if (c.assignedTo === name) {
+      c.assignedTo = null;
+      store.assignments.delete(c.id);
+    }
+  });
+  io?.emit("admins:update", store.admins);
+  res.json(store.admins);
+});
+
 // ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
@@ -309,6 +337,7 @@ io = new Server(server, { cors: { origin: "*" } });
 
 io.on("connection", (socket) => {
   socket.emit("inbox:update", Array.from(store.conversations.values()));
+  socket.emit("admins:update", store.admins);
 });
 
 server.listen(PORT, () => {
