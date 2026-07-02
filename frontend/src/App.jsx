@@ -172,6 +172,9 @@ const STRINGS = {
     adminList: "Daftar admin", adminAdd: "Tambah admin", adminPlaceholder: "Nama admin baru...",
     adminEmpty: "Belum ada admin, tambahin dulu di atas.",
     demoWarning: "Nggak bisa konek ke server Repliz — nampilin data contoh dulu.",
+    replyFailed: "Gagal mengirim balasan ke Repliz. Coba lagi sebentar lagi.",
+    noPostDm: "Ini pesan langsung (DM), nggak terhubung ke postingan tertentu.",
+    loadingThread: "Memuat percakapan...",
   },
   en: {
     tagline: "Manage millions of your engagements",
@@ -203,6 +206,9 @@ const STRINGS = {
     adminList: "Admin list", adminAdd: "Add admin", adminPlaceholder: "New admin name...",
     adminEmpty: "No admins yet, add one above.",
     demoWarning: "Can't reach the Repliz server — showing sample data instead.",
+    replyFailed: "Failed to send the reply to Repliz. Try again in a moment.",
+    noPostDm: "This is a direct message, not tied to a specific post.",
+    loadingThread: "Loading conversation...",
   },
 };
 
@@ -267,6 +273,7 @@ export default function ProfAdmin() {
       });
       setConnectionError(false);
     });
+    socket.on("admins:update", (list) => setAdmins(list));
     socket.on("connect_error", () => setConnectionError(true));
 
     return () => socket.disconnect();
@@ -275,13 +282,19 @@ export default function ProfAdmin() {
   function addAdmin() {
     const name = newAdminName.trim();
     if (!name || admins.includes(name)) return;
-    setAdmins((prev) => [...prev, name]);
     setNewAdminName("");
+    setAdmins((prev) => [...prev, name]); // optimistic, socket will confirm
+    fetch(`${API_URL}/api/admins`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    }).catch(() => {});
   }
 
   function removeAdmin(name) {
-    setAdmins((prev) => prev.filter((a) => a !== name));
+    setAdmins((prev) => prev.filter((a) => a !== name)); // optimistic
     setData((prev) => prev.map((c) => (c.assignedTo === name ? { ...c, assignedTo: null } : c)));
+    fetch(`${API_URL}/api/admins/${encodeURIComponent(name)}`, { method: "DELETE" }).catch(() => {});
   }
 
   const accountNames = useMemo(() => Array.from(new Set(data.map((c) => c.account))), [data]);
@@ -299,6 +312,23 @@ export default function ProfAdmin() {
 
   const selected = data.find((c) => c.id === selectedId) || filtered[0];
 
+  // DM threads are loaded lazily by the backend — fetch the full detail once selected.
+  const [threadLoading, setThreadLoading] = useState(false);
+  const [replyError, setReplyError] = useState(null);
+  useEffect(() => {
+    if (!selected || connectionError) return;
+    setReplyError(null);
+    if (selected.thread && selected.thread.length > 0) return;
+    setThreadLoading(true);
+    fetch(`${API_URL}/api/inbox/${encodeURIComponent(selected.id)}`)
+      .then((res) => res.json())
+      .then((full) => {
+        setData((prev) => prev.map((c) => (c.id === full.id ? full : c)));
+      })
+      .catch(() => {})
+      .finally(() => setThreadLoading(false));
+  }, [selectedId]);
+
   const pendingCount = data.filter((c) => c.status === "pending").length;
   const repliedTodayCount = data.filter((c) => c.status === "replied").length;
   const unassignedCount = data.filter((c) => !c.assignedTo).length;
@@ -307,6 +337,7 @@ export default function ProfAdmin() {
     if (!reply.trim() || !selected) return;
     const text = reply.trim();
     setReply("");
+    setReplyError(null);
     // Optimistic update so the admin sees it instantly, then confirm with the backend.
     setData((prev) =>
       prev.map((c) =>
@@ -319,7 +350,14 @@ export default function ProfAdmin() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
-    }).catch(() => setConnectionError(true));
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.message || "failed");
+        }
+      })
+      .catch(() => setReplyError(s.replyFailed));
   }
 
   function claim(adminName) {
@@ -382,7 +420,7 @@ export default function ProfAdmin() {
   ];
 
   return (
-    <div className={`w-full min-h-screen flex flex-col text-sm ${t.page}`}>
+    <div className={`w-full h-screen flex flex-col text-sm overflow-hidden ${t.page}`}>
       {connectionError && (
         <div className="w-full bg-amber-900/60 border-b border-amber-700 text-amber-200 text-xs px-4 py-2 flex items-center gap-2 shrink-0">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {s.demoWarning}
@@ -797,21 +835,34 @@ export default function ProfAdmin() {
                     <ChevronDown className={`w-3.5 h-3.5 transition-transform ${t.textMuted} ${showPost ? "rotate-180" : ""}`} />
                   </button>
                   {showPost && (
-                    <div className="px-3.5 pb-3.5 flex gap-3">
-                      <div className="w-16 h-16 rounded-lg bg-gradient-to-br from-orange-700 to-zinc-800 flex items-center justify-center shrink-0">
-                        <ImageIcon className="w-5 h-5 text-orange-200" />
-                      </div>
-                      <div className="min-w-0 flex flex-col justify-center">
-                        <div className={`text-xs mb-1 ${t.textBody}`}>{selected.post.caption}</div>
-                        <div className={`text-[11px] ${t.textMuted}`}>
-                          {selected.likes} {s.likes.toLowerCase()} · {selected.comments} {s.comments.toLowerCase()}
+                    selected.post ? (
+                      <div className="px-3.5 pb-3.5 flex gap-3">
+                        <div className="w-16 h-16 rounded-lg bg-gradient-to-br from-orange-700 to-zinc-800 flex items-center justify-center shrink-0">
+                          <ImageIcon className="w-5 h-5 text-orange-200" />
+                        </div>
+                        <div className="min-w-0 flex flex-col justify-center">
+                          <div className={`text-xs mb-1 ${t.textBody}`}>{selected.post.caption}</div>
+                          <div className={`text-[11px] ${t.textMuted}`}>
+                            {selected.likes} {s.likes.toLowerCase()} · {selected.comments} {s.comments.toLowerCase()}
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    ) : (
+                      <div className={`px-3.5 pb-3.5 text-xs ${t.textMuted}`}>{s.noPostDm}</div>
+                    )
                   )}
                 </div>
 
+                {replyError && (
+                  <div className="mx-5 mt-3 rounded-lg border border-red-800 bg-red-950/60 text-red-300 text-xs px-3 py-2">
+                    {replyError}
+                  </div>
+                )}
+
                 <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-3">
+                  {threadLoading && (
+                    <div className={`text-xs text-center py-2 ${t.textMuted}`}>{s.loadingThread}</div>
+                  )}
                   {selected.thread.map((m, i) => (
                     <div key={i} className={`max-w-md ${m.from === "admin" ? "self-end" : "self-start"}`}>
                       <div
