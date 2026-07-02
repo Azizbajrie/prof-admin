@@ -233,7 +233,7 @@ export default function ProfAdmin() {
   const t = THEMES[themeMode];
   const s = STRINGS[lang];
 
-  const [view, setView] = useState("inbox");
+  const [view, setView] = useState("dashboard");
 
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
