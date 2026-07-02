@@ -782,7 +782,12 @@ export default function ProfAdmin() {
                           </span>
                           <span className={`text-xs shrink-0 ${t.textMuted}`}>{c.time}</span>
                         </div>
-                        <div className={`text-xs truncate mb-1.5 ${t.textMuted}`}>via {c.account}</div>
+                        <div className={`text-xs truncate mb-1.5 flex items-center gap-1.5 ${t.textMuted}`}>
+                          via {c.account}
+                          {c.status === "pending" && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0" title="Belum dibalas" />
+                          )}
+                        </div>
                         <div className={`text-xs truncate ${c.unread ? t.textBody : t.textMuted}`}>{c.preview}</div>
                         <div className="flex items-center gap-1.5 mt-2">
                           <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[11px] ${platformChip(c.platform, t)}`}>
