@@ -1016,15 +1016,41 @@ function Dashboard({ onLogout }) {
 // ---------------------------------------------------------------------------
 
 function LandingPage({ onEnter }) {
+  const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:4000";
+  const [stats, setStats] = useState(null);
+
+  useEffect(() => {
+    fetch(`${apiUrl}/api/public-stats`)
+      .then((res) => res.json())
+      .then(setStats)
+      .catch(() => {});
+  }, []);
+
   const features = [
     { icon: LayoutGrid, title: "Unified inbox", desc: "Komen dan DM dari semua akun & platform digabung jadi satu tampilan." },
     { icon: Zap, title: "Real-time", desc: "Pesan baru langsung muncul lewat webhook, nggak perlu refresh manual." },
     { icon: TrendingUp, title: "Dashboard analitik", desc: "Pantau performa per akun dan per platform, plus konten terbaik." },
     { icon: Users, title: "Multi-admin", desc: "Bagi kerjaan ke beberapa admin, assign percakapan per orang." },
+    { icon: Sparkles, title: "Ditenagai AI", desc: "Rekomendasi balasan pintar & deteksi prioritas otomatis. Segera hadir." },
+    { icon: LayoutDashboard, title: "Satu login tim", desc: "Semua admin masuk lewat 1 kode akses, nggak perlu akun ribet." },
+  ];
+
+  const platforms = ["Instagram", "Threads", "Facebook", "TikTok", "YouTube", "LinkedIn"];
+
+  const statCards = [
+    { label: "Total percakapan", value: stats?.totalConversations },
+    { label: "Sedang pending", value: stats?.totalPending },
+    { label: "Total suka terkelola", value: stats?.totalLikes },
+    { label: "Akun terhubung", value: stats?.totalAccounts },
   ];
 
   return (
-    <div className="w-full min-h-screen bg-gradient-to-br from-black via-zinc-950 to-orange-950 text-zinc-200">
+    <div className="w-full min-h-screen bg-gradient-to-br from-black via-zinc-950 to-orange-950 text-zinc-200 overflow-x-hidden">
+      <style>{`
+        @keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+        .marquee-track { animation: marquee 22s linear infinite; }
+      `}</style>
+
       <div className="max-w-5xl mx-auto px-6 py-6 flex items-center justify-between">
         <div className="font-medium text-lg bg-gradient-to-r from-orange-400 to-amber-200 bg-clip-text text-transparent">
           Prof Admin
@@ -1037,9 +1063,9 @@ function LandingPage({ onEnter }) {
         </button>
       </div>
 
-      <div className="max-w-3xl mx-auto px-6 pt-16 pb-20 text-center">
+      <div className="max-w-3xl mx-auto px-6 pt-16 pb-14 text-center">
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-orange-800 bg-orange-950 text-orange-300 text-xs mb-6">
-          <Sparkles className="w-3 h-3" /> Terhubung langsung ke Repliz
+          <Sparkles className="w-3 h-3" /> Tempatnya mesin cuan
         </div>
         <h1 className="text-4xl sm:text-5xl font-medium text-zinc-50 mb-4 leading-tight">
           Kelola jutaan <span className="bg-gradient-to-r from-orange-400 to-amber-200 bg-clip-text text-transparent">engagement</span> dari satu dashboard
@@ -1055,7 +1081,46 @@ function LandingPage({ onEnter }) {
         </button>
       </div>
 
-      <div className="max-w-5xl mx-auto px-6 pb-24 grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* Running text ticker */}
+      <div className="border-y border-orange-950/50 bg-black/40 py-3 overflow-hidden mb-14">
+        <div className="flex whitespace-nowrap marquee-track">
+          {[0, 1].map((rep) => (
+            <div key={rep} className="flex items-center shrink-0">
+              {[...platforms, "Real-time", "Multi-admin", "Dashboard analitik", "Ditenagai AI"].map((item, i) => (
+                <span key={`${rep}-${i}`} className="flex items-center gap-2 mx-4 text-sm text-zinc-400">
+                  <span className="w-1 h-1 rounded-full bg-orange-500" /> {item}
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Live stats */}
+      <div className="max-w-5xl mx-auto px-6 mb-16">
+        <div className="text-center mb-6">
+          <div className={`inline-flex items-center gap-1.5 text-xs text-orange-400`}>
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-orange-500" />
+            </span>
+            Data live dari dashboard yang lagi jalan
+          </div>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {statCards.map(({ label, value }) => (
+            <div key={label} className="rounded-xl border border-orange-950/40 bg-zinc-900/60 p-4 text-center">
+              <div className="text-2xl sm:text-3xl font-medium bg-gradient-to-r from-orange-400 to-amber-200 bg-clip-text text-transparent">
+                {value != null ? value.toLocaleString() : "–"}
+              </div>
+              <div className="text-zinc-500 text-xs mt-1">{label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Features */}
+      <div className="max-w-5xl mx-auto px-6 pb-16 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {features.map(({ icon: Icon, title, desc }) => (
           <div key={title} className="rounded-xl border border-orange-950/40 bg-zinc-900/60 p-5">
             <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-orange-600 to-orange-900 flex items-center justify-center mb-3">
@@ -1065,6 +1130,19 @@ function LandingPage({ onEnter }) {
             <div className="text-zinc-500 text-sm">{desc}</div>
           </div>
         ))}
+      </div>
+
+      {/* Supported platforms */}
+      <div className="max-w-3xl mx-auto px-6 pb-24 text-center">
+        <div className="text-zinc-100 font-medium mb-1">Connect media sosial apa aja?</div>
+        <div className="text-zinc-500 text-sm mb-6">Satu dashboard buat semua akun bisnis lu.</div>
+        <div className="flex flex-wrap justify-center gap-2">
+          {platforms.map((p) => (
+            <span key={p} className="px-3.5 py-1.5 rounded-full border border-orange-800 bg-orange-950/60 text-orange-300 text-sm">
+              {p}
+            </span>
+          ))}
+        </div>
       </div>
     </div>
   );
