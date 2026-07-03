@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { io } from "socket.io-client";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import {
   Search, MessageCircle, Mail, Heart, Share2, Clock, Send,
   LayoutDashboard, Inbox, Users, Settings, ChevronDown,
@@ -533,22 +534,53 @@ function Dashboard() {
             </div>
 
             <div className={`rounded-xl border p-4 ${t.card}`}>
-              <div className={`text-xs mb-3 flex items-center gap-1.5 ${t.textMuted}`}>
-                <TrendingUp className="w-3.5 h-3.5" /> {s.perPlatform}
+              <div className="flex items-center justify-between mb-3">
+                <div className={`text-xs flex items-center gap-1.5 ${t.textMuted}`}>
+                  <TrendingUp className="w-3.5 h-3.5" /> {s.perPlatform}
+                </div>
+                <span className="inline-flex items-center gap-1.5 text-[11px] text-orange-400">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-orange-500" />
+                  </span>
+                  Live
+                </span>
               </div>
-              <div className="flex flex-col gap-2.5">
-                {perPlatform.map((p) => (
-                  <div key={p.platform} className="flex items-center justify-between">
-                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded border text-[11px] ${platformChip(p.platform, t)}`}>
-                      {platformLabel(p.platform)}
-                    </span>
-                    <div className="flex items-center gap-3 text-xs shrink-0">
-                      <span className="flex items-center gap-1 text-pink-400"><Heart className="w-3 h-3" />{p.likes}</span>
-                      <span className="flex items-center gap-1 text-orange-400"><MessageCircle className="w-3 h-3" />{p.comments}</span>
-                      <span className="flex items-center gap-1 text-amber-400"><Share2 className="w-3 h-3" />{p.shares}</span>
-                    </div>
-                  </div>
-                ))}
+              <div style={{ width: "100%", height: 180 }}>
+                <ResponsiveContainer>
+                  <BarChart data={perPlatform} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="barLikes" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#fb923c" stopOpacity={1} />
+                        <stop offset="100%" stopColor="#7c2d12" stopOpacity={0.8} />
+                      </linearGradient>
+                      <linearGradient id="barShares" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#fbbf24" stopOpacity={1} />
+                        <stop offset="100%" stopColor="#78350f" stopOpacity={0.8} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={themeMode === "dark" ? "#27272a" : "#fed7aa"} vertical={false} />
+                    <XAxis
+                      dataKey="platform"
+                      tickFormatter={(p) => platformLabel(p)}
+                      tick={{ fill: themeMode === "dark" ? "#a1a1aa" : "#78716c", fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis tick={{ fill: themeMode === "dark" ? "#a1a1aa" : "#78716c", fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <Tooltip
+                      contentStyle={{
+                        background: themeMode === "dark" ? "#18181b" : "#fff",
+                        border: "1px solid #7c2d12",
+                        borderRadius: 8,
+                        fontSize: 12,
+                      }}
+                      labelFormatter={(p) => platformLabel(p)}
+                    />
+                    <Bar dataKey="likes" name={s.likes} fill="url(#barLikes)" radius={[4, 4, 0, 0]} isAnimationActive animationDuration={600} />
+                    <Bar dataKey="shares" name={s.shares} fill="url(#barShares)" radius={[4, 4, 0, 0]} isAnimationActive animationDuration={600} />
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
             </div>
           </div>
