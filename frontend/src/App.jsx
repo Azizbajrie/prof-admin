@@ -5,6 +5,7 @@ import {
   LayoutDashboard, Inbox, Users, Settings, ChevronDown,
   CircleCheck, CircleDot, AtSign, Image as ImageIcon,
   TrendingUp, Trophy, Globe, Moon, Sun, CheckCircle2, AlertTriangle, UserPlus, X,
+  ArrowRight, Lock, Zap, LayoutGrid, Sparkles,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -227,7 +228,7 @@ function TypeIcon({ type, className }) {
 // Falls back to localhost so local testing still works without extra setup.
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
-export default function ProfAdmin() {
+function Dashboard() {
   const [themeMode, setThemeMode] = useState("dark");
   const [lang, setLang] = useState("id");
   const t = THEMES[themeMode];
@@ -970,4 +971,146 @@ export default function ProfAdmin() {
       </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Landing page
+// ---------------------------------------------------------------------------
+
+function LandingPage({ onEnter }) {
+  const features = [
+    { icon: LayoutGrid, title: "Unified inbox", desc: "Komen dan DM dari semua akun & platform digabung jadi satu tampilan." },
+    { icon: Zap, title: "Real-time", desc: "Pesan baru langsung muncul lewat webhook, nggak perlu refresh manual." },
+    { icon: TrendingUp, title: "Dashboard analitik", desc: "Pantau performa per akun dan per platform, plus konten terbaik." },
+    { icon: Users, title: "Multi-admin", desc: "Bagi kerjaan ke beberapa admin, assign percakapan per orang." },
+  ];
+
+  return (
+    <div className="w-full min-h-screen bg-gradient-to-br from-black via-zinc-950 to-orange-950 text-zinc-200">
+      <div className="max-w-5xl mx-auto px-6 py-6 flex items-center justify-between">
+        <div className="font-medium text-lg bg-gradient-to-r from-orange-400 to-amber-200 bg-clip-text text-transparent">
+          Prof Admin
+        </div>
+        <button
+          onClick={onEnter}
+          className="px-4 py-2 rounded-lg bg-gradient-to-r from-orange-600 to-orange-800 hover:from-orange-500 hover:to-orange-700 text-white text-sm flex items-center gap-1.5"
+        >
+          Masuk <ArrowRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      <div className="max-w-3xl mx-auto px-6 pt-16 pb-20 text-center">
+        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-orange-800 bg-orange-950 text-orange-300 text-xs mb-6">
+          <Sparkles className="w-3 h-3" /> Terhubung langsung ke Repliz
+        </div>
+        <h1 className="text-4xl sm:text-5xl font-medium text-zinc-50 mb-4 leading-tight">
+          Kelola jutaan <span className="bg-gradient-to-r from-orange-400 to-amber-200 bg-clip-text text-transparent">engagement</span> dari satu dashboard
+        </h1>
+        <p className="text-zinc-400 text-base mb-8 max-w-xl mx-auto">
+          Semua komentar dan DM dari puluhan akun media sosial, digabung jadi satu inbox yang gampang dikelola tim admin lu.
+        </p>
+        <button
+          onClick={onEnter}
+          className="px-6 py-3 rounded-lg bg-gradient-to-r from-orange-600 to-orange-800 hover:from-orange-500 hover:to-orange-700 text-white font-medium inline-flex items-center gap-2"
+        >
+          Masuk ke Dashboard <ArrowRight className="w-4 h-4" />
+        </button>
+      </div>
+
+      <div className="max-w-5xl mx-auto px-6 pb-24 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {features.map(({ icon: Icon, title, desc }) => (
+          <div key={title} className="rounded-xl border border-orange-950/40 bg-zinc-900/60 p-5">
+            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-orange-600 to-orange-900 flex items-center justify-center mb-3">
+              <Icon className="w-4.5 h-4.5 text-white" />
+            </div>
+            <div className="text-zinc-100 font-medium mb-1">{title}</div>
+            <div className="text-zinc-500 text-sm">{desc}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Login page
+// ---------------------------------------------------------------------------
+
+function LoginPage({ onLogin, apiUrl }) {
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  function submit(e) {
+    e.preventDefault();
+    if (!code.trim()) return;
+    setLoading(true);
+    setError("");
+    fetch(`${apiUrl}/api/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: code.trim() }),
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("Kode akses salah");
+        return res.json();
+      })
+      .then(() => onLogin())
+      .catch((err) => setError(err.message || "Gagal login"))
+      .finally(() => setLoading(false));
+  }
+
+  return (
+    <div className="w-full min-h-screen bg-gradient-to-br from-black via-zinc-950 to-orange-950 text-zinc-200 flex items-center justify-center px-6">
+      <div className="w-full max-w-sm">
+        <div className="text-center mb-8">
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-600 to-orange-900 flex items-center justify-center mx-auto mb-4">
+            <Lock className="w-5 h-5 text-white" />
+          </div>
+          <div className="font-medium text-lg bg-gradient-to-r from-orange-400 to-amber-200 bg-clip-text text-transparent">
+            Prof Admin
+          </div>
+          <div className="text-zinc-500 text-xs mt-1">Masukkan kode akses buat lanjut</div>
+        </div>
+
+        <form onSubmit={submit} className="rounded-xl border border-orange-950/40 bg-zinc-900/60 p-5">
+          <label className="text-xs text-zinc-500 mb-1.5 block">Kode akses</label>
+          <input
+            type="password"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="••••••••"
+            autoFocus
+            className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-zinc-200 placeholder-zinc-600 outline-none focus:border-orange-700 mb-3"
+          />
+          {error && <div className="text-red-400 text-xs mb-3">{error}</div>}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-2.5 rounded-lg bg-gradient-to-r from-orange-600 to-orange-800 hover:from-orange-500 hover:to-orange-700 text-white font-medium disabled:opacity-60"
+          >
+            {loading ? "Memeriksa..." : "Masuk"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Top-level router: Landing -> Login -> Dashboard
+// ---------------------------------------------------------------------------
+
+export default function App() {
+  const [stage, setStage] = useState(() => (localStorage.getItem("profadmin_auth") === "true" ? "dashboard" : "landing"));
+  const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:4000";
+
+  function handleLogin() {
+    localStorage.setItem("profadmin_auth", "true");
+    setStage("dashboard");
+  }
+
+  if (stage === "landing") return <LandingPage onEnter={() => setStage("login")} />;
+  if (stage === "login") return <LoginPage onLogin={handleLogin} apiUrl={apiUrl} />;
+  return <Dashboard />;
 }
