@@ -390,6 +390,20 @@ app.post("/api/login", (req, res) => {
   res.json({ ok: true });
 });
 
+// Public, content-free aggregate numbers for the marketing landing page —
+// no auth needed since it's just counts, no message/contact content exposed.
+app.get("/api/public-stats", (req, res) => {
+  const all = Array.from(store.conversations.values());
+  const accounts = new Set(all.map((c) => c.account));
+  res.json({
+    totalConversations: all.length,
+    totalPending: all.filter((c) => c.status === "pending").length,
+    totalLikes: all.reduce((sum, c) => sum + (c.likes || 0), 0),
+    totalShares: all.reduce((sum, c) => sum + (c.shares || 0), 0),
+    totalAccounts: accounts.size,
+  });
+});
+
 // Admin roster — shared across everyone using the dashboard.
 app.get("/api/admins", (req, res) => {
   res.json(store.admins);
