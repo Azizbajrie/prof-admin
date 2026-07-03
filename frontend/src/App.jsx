@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Inbox, Users, Settings, ChevronDown,
   CircleCheck, CircleDot, AtSign, Image as ImageIcon,
   TrendingUp, Trophy, Globe, Moon, Sun, CheckCircle2, AlertTriangle, UserPlus, X,
-  ArrowRight, Lock, Zap, LayoutGrid, Sparkles,
+  ArrowRight, Lock, Zap, LayoutGrid, Sparkles, LogOut,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -151,7 +151,7 @@ const STRINGS = {
     all: "Semua", comment: "Komen", dm: "DM",
     allStatus: "Semua status", pending: "Pending", replied: "Terbalas",
     allAccounts: "Semua akun", allPlatforms: "Semua platform",
-    summaryToday: "Ringkasan hari ini", unassignedLabel: "Belum ditugaskan",
+    summaryToday: "Ringkasan hari ini", unassignedLabel: "Belum ditugaskan", logout: "Keluar",
     noMatch: "Tidak ada percakapan yang cocok.",
     repliesTo: "membalas sebagai",
     originalPost: "Postingan asli yang dikomentari",
@@ -185,7 +185,7 @@ const STRINGS = {
     all: "All", comment: "Comment", dm: "DM",
     allStatus: "All status", pending: "Pending", replied: "Replied",
     allAccounts: "All accounts", allPlatforms: "All platforms",
-    summaryToday: "Today's summary", unassignedLabel: "Unassigned",
+    summaryToday: "Today's summary", unassignedLabel: "Unassigned", logout: "Log out",
     noMatch: "No matching conversations.",
     repliesTo: "replying as",
     originalPost: "Original post being commented on",
@@ -229,7 +229,7 @@ function TypeIcon({ type, className }) {
 // Falls back to localhost so local testing still works without extra setup.
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
-function Dashboard() {
+function Dashboard({ onLogout }) {
   const [themeMode, setThemeMode] = useState("dark");
   const [lang, setLang] = useState("id");
   const t = THEMES[themeMode];
@@ -466,6 +466,12 @@ function Dashboard() {
             <span className={t.textSoft}>{s.unassignedLabel}</span>
             <span className={`font-medium ${t.textStrong}`}>{unassignedCount}</span>
           </div>
+          <button
+            onClick={onLogout}
+            className={`w-full flex items-center gap-2 mt-3 pt-3 border-t text-xs ${t.divider} ${t.textMuted} hover:text-red-400`}
+          >
+            <LogOut className="w-3.5 h-3.5" /> {s.logout}
+          </button>
         </div>
       </div>
 
@@ -1142,7 +1148,12 @@ export default function App() {
     setStage("dashboard");
   }
 
+  function handleLogout() {
+    localStorage.removeItem("profadmin_auth");
+    setStage("landing");
+  }
+
   if (stage === "landing") return <LandingPage onEnter={() => setStage("login")} />;
   if (stage === "login") return <LoginPage onLogin={handleLogin} apiUrl={apiUrl} />;
-  return <Dashboard />;
+  return <Dashboard onLogout={handleLogout} />;
 }
