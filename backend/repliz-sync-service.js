@@ -373,6 +373,23 @@ app.get("/api/accounts", async (req, res) => {
   }
 });
 
+// Simple shared-password login for the dashboard. Not per-admin accounts —
+// just one access code everyone on the team uses, kept as a Railway env var
+// so it's easy to rotate without touching code.
+const ADMIN_ACCESS_CODE = process.env.ADMIN_ACCESS_CODE || "";
+
+app.post("/api/login", (req, res) => {
+  const code = (req.body?.code || "").trim();
+  if (!ADMIN_ACCESS_CODE) {
+    // No code configured yet — fail closed rather than letting anyone in.
+    return res.status(500).json({ message: "login not configured yet" });
+  }
+  if (code !== ADMIN_ACCESS_CODE) {
+    return res.status(401).json({ message: "invalid code" });
+  }
+  res.json({ ok: true });
+});
+
 // Admin roster — shared across everyone using the dashboard.
 app.get("/api/admins", (req, res) => {
   res.json(store.admins);
