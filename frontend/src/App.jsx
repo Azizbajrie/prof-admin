@@ -1118,7 +1118,7 @@ function Dashboard({ onLogout }) {
 // Landing page
 // ---------------------------------------------------------------------------
 
-function LandingPage({ onEnter }) {
+function LandingPage({ onLogin, onSignup }) {
   const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:4000";
   const [stats, setStats] = useState(null);
 
@@ -1158,12 +1158,20 @@ function LandingPage({ onEnter }) {
         <div className="font-medium text-lg bg-gradient-to-r from-orange-400 to-amber-200 bg-clip-text text-transparent">
           Prof Admin
         </div>
-        <button
-          onClick={onEnter}
-          className="px-4 py-2 rounded-lg bg-gradient-to-r from-orange-600 to-orange-800 hover:from-orange-500 hover:to-orange-700 text-white text-sm flex items-center gap-1.5"
-        >
-          Masuk <ArrowRight className="w-3.5 h-3.5" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onLogin}
+            className="px-4 py-2 rounded-lg border border-orange-800 text-orange-300 hover:bg-orange-950 text-sm"
+          >
+            Masuk
+          </button>
+          <button
+            onClick={onSignup}
+            className="px-4 py-2 rounded-lg bg-gradient-to-r from-orange-600 to-orange-800 hover:from-orange-500 hover:to-orange-700 text-white text-sm flex items-center gap-1.5"
+          >
+            Daftar <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
       <div className="max-w-3xl mx-auto px-6 pt-16 pb-14 text-center">
@@ -1176,12 +1184,20 @@ function LandingPage({ onEnter }) {
         <p className="text-zinc-400 text-base mb-8 max-w-xl mx-auto">
           Semua komentar dan DM dari puluhan akun media sosial, digabung jadi satu inbox yang gampang dikelola tim admin lu.
         </p>
-        <button
-          onClick={onEnter}
-          className="px-6 py-3 rounded-lg bg-gradient-to-r from-orange-600 to-orange-800 hover:from-orange-500 hover:to-orange-700 text-white font-medium inline-flex items-center gap-2"
-        >
-          Masuk ke Dashboard <ArrowRight className="w-4 h-4" />
-        </button>
+        <div className="flex items-center justify-center gap-3">
+          <button
+            onClick={onSignup}
+            className="px-6 py-3 rounded-lg bg-gradient-to-r from-orange-600 to-orange-800 hover:from-orange-500 hover:to-orange-700 text-white font-medium inline-flex items-center gap-2"
+          >
+            Daftar Gratis <ArrowRight className="w-4 h-4" />
+          </button>
+          <button
+            onClick={onLogin}
+            className="px-6 py-3 rounded-lg border border-orange-800 text-orange-300 hover:bg-orange-950 font-medium"
+          >
+            Sudah punya akun? Masuk
+          </button>
+        </div>
       </div>
 
       {/* Running text ticker */}
@@ -1252,10 +1268,145 @@ function LandingPage({ onEnter }) {
 }
 
 // ---------------------------------------------------------------------------
+// Sign up page — creates a real user account (email + password + their own
+// Repliz keys). Fase 1 only: doesn't personalize the dashboard data yet.
+// ---------------------------------------------------------------------------
+
+function SignupPage({ onDone, onBackToLanding, apiUrl }) {
+  const [form, setForm] = useState({ email: "", password: "", replizAccessKey: "", replizSecretKey: "" });
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
+
+  function update(key, value) {
+    setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  function submit(e) {
+    e.preventDefault();
+    setError("");
+    if (!form.email.trim() || !form.password) {
+      setError("Email dan password wajib diisi");
+      return;
+    }
+    if (form.password.length < 6) {
+      setError("Password minimal 6 karakter");
+      return;
+    }
+    setLoading(true);
+    fetch(`${apiUrl}/api/signup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(form),
+    })
+      .then(async (res) => {
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.message || "Gagal mendaftar");
+        setDone(true);
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+  }
+
+  if (done) {
+    return (
+      <div className="w-full min-h-screen bg-gradient-to-br from-black via-zinc-950 to-orange-950 text-zinc-200 flex items-center justify-center px-6">
+        <div className="w-full max-w-sm text-center">
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-600 to-orange-900 flex items-center justify-center mx-auto mb-4">
+            <CheckCircle2 className="w-5 h-5 text-white" />
+          </div>
+          <div className="text-zinc-100 font-medium mb-2">Akun berhasil dibuat!</div>
+          <p className="text-zinc-500 text-sm mb-6">
+            Data akun lu tersimpan. Buat sekarang, akses ke dashboard masih pakai kode akses tim — hubungi admin buat dapetin itu.
+          </p>
+          <button
+            onClick={onDone}
+            className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-orange-600 to-orange-800 hover:from-orange-500 hover:to-orange-700 text-white font-medium"
+          >
+            Ke halaman Masuk
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full min-h-screen bg-gradient-to-br from-black via-zinc-950 to-orange-950 text-zinc-200 flex items-center justify-center px-6 py-10">
+      <div className="w-full max-w-sm">
+        <div className="text-center mb-6">
+          <div className="font-medium text-lg bg-gradient-to-r from-orange-400 to-amber-200 bg-clip-text text-transparent">
+            Daftar Prof Admin
+          </div>
+          <div className="text-zinc-500 text-xs mt-1">Gratis, isi data akun lu di bawah</div>
+        </div>
+
+        <form onSubmit={submit} className="rounded-xl border border-orange-950/40 bg-zinc-900/60 p-5 flex flex-col gap-3">
+          <div>
+            <label className="text-xs text-zinc-500 mb-1 block">Email</label>
+            <input
+              type="email"
+              value={form.email}
+              onChange={(e) => update("email", e.target.value)}
+              placeholder="kamu@email.com"
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-zinc-200 placeholder-zinc-600 outline-none focus:border-orange-700"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-zinc-500 mb-1 block">Password</label>
+            <input
+              type="password"
+              value={form.password}
+              onChange={(e) => update("password", e.target.value)}
+              placeholder="Minimal 6 karakter"
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-zinc-200 placeholder-zinc-600 outline-none focus:border-orange-700"
+            />
+          </div>
+          <div className="pt-1 border-t border-zinc-800">
+            <div className="text-xs text-zinc-500 mt-2 mb-1">Akun Repliz kamu (opsional, buat nanti)</div>
+          </div>
+          <div>
+            <label className="text-xs text-zinc-500 mb-1 block">Repliz Access Key</label>
+            <input
+              type="text"
+              value={form.replizAccessKey}
+              onChange={(e) => update("replizAccessKey", e.target.value)}
+              placeholder="Access key dari Repliz"
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-zinc-200 placeholder-zinc-600 outline-none focus:border-orange-700"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-zinc-500 mb-1 block">Repliz Secret Key</label>
+            <input
+              type="password"
+              value={form.replizSecretKey}
+              onChange={(e) => update("replizSecretKey", e.target.value)}
+              placeholder="Secret key dari Repliz"
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-zinc-200 placeholder-zinc-600 outline-none focus:border-orange-700"
+            />
+          </div>
+          {error && <div className="text-red-400 text-xs">{error}</div>}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-2.5 rounded-lg bg-gradient-to-r from-orange-600 to-orange-800 hover:from-orange-500 hover:to-orange-700 text-white font-medium disabled:opacity-60 mt-1"
+          >
+            {loading ? "Mendaftar..." : "Daftar"}
+          </button>
+        </form>
+
+        <button onClick={onBackToLanding} className="w-full text-center text-zinc-500 text-xs mt-4 hover:text-zinc-300">
+          Sudah punya akun? Masuk
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Login page
 // ---------------------------------------------------------------------------
 
-function LoginPage({ onLogin, apiUrl }) {
+function LoginPage({ onLogin, onSignup, apiUrl }) {
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -1311,6 +1462,9 @@ function LoginPage({ onLogin, apiUrl }) {
             {loading ? "Memeriksa..." : "Masuk"}
           </button>
         </form>
+        <button onClick={onSignup} className="w-full text-center text-zinc-500 text-xs mt-4 hover:text-zinc-300">
+          Belum punya akun? Daftar
+        </button>
       </div>
     </div>
   );
@@ -1334,7 +1488,9 @@ export default function App() {
     setStage("landing");
   }
 
-  if (stage === "landing") return <LandingPage onEnter={() => setStage("login")} />;
-  if (stage === "login") return <LoginPage onLogin={handleLogin} apiUrl={apiUrl} />;
+  if (stage === "landing") return <LandingPage onLogin={() => setStage("login")} onSignup={() => setStage("signup")} />;
+  if (stage === "signup")
+    return <SignupPage onDone={() => setStage("login")} onBackToLanding={() => setStage("login")} apiUrl={apiUrl} />;
+  if (stage === "login") return <LoginPage onLogin={handleLogin} onSignup={() => setStage("signup")} apiUrl={apiUrl} />;
   return <Dashboard onLogout={handleLogout} />;
 }
