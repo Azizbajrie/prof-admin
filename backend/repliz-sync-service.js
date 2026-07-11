@@ -27,12 +27,60 @@ const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
 const http = require("http");
+const crypto = require("crypto");
+const bcrypt = require("bcryptjs");
+const { Pool } = require("pg");
 const { Server } = require("socket.io");
 
 const ACCESS_KEY = process.env.REPLIZ_ACCESS_KEY || "YOUR_ACCESS_KEY";
 const SECRET_KEY = process.env.REPLIZ_SECRET_KEY || "YOUR_SECRET_KEY";
 const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS || 20000);
 const PORT = process.env.PORT || 4000;
+
+// ---------------------------------------------------------------------------
+// Database — Fase 1: user accounts (signup/login).
+// Each user's OWN Repliz Access Key/Secret Key is stored (encrypted) here.
+// Actually syncing each user's own data (Fase 2) comes in a later step —
+// for now the main dashboard still runs on the single shared Repliz account
+// configured via REPLIZ_ACCESS_KEY/REPLIZ_SECRET_KEY above.
+// ---------------------------------------------------------------------------
+
+const pool = process.env.DATABASE_URL
+  ? new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } })
+  : null;
+
+async function initDb() {
+  if (!pool) {
+    console.warn("DATABASE_URL not set — signup/login (Fase 1) is disabled until it's configured.");
+    return;
+  }
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      repliz_access_key TEXT,
+      repliz_secret_key_enc TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  console.log("Database ready: users table OK");
+}
+
+// Simple AES-256 encryption for storing each user's Repliz Secret Key at
+// rest, so it's not sitting in the database in plain text.
+const ENCRYPTION_SECRET = crypto.createHash("sha256").update(process.env.ENCRYPTION_SECRET || "change-me").digest();
+function encryptSecret(text) {
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv("aes-256-cbc", ENCRYPTION_SECRET, iv);
+  const enc = Buffer.concat([cipher.update(text, "utf8"), cipher.final()]);
+  return `${iv.toString("hex")}:${enc.toString("hex")}`;
+}
+function decryptSecret(payload) {
+  const [ivHex, encHex] = payload.split(":");
+  const decipher = crypto.createDecipheriv("aes-256-cbc", ENCRYPTION_SECRET, Buffer.from(ivHex, "hex"));
+  return Buffer.concat([decipher.update(Buffer.from(encHex, "hex")), decipher.final()]).toString("utf8");
+}
 
 // ---------------------------------------------------------------------------
 // Repliz API client
@@ -391,6 +439,51 @@ app.post("/api/login", (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------------------------------------------------------------------------
+// Fase 1: real per-user accounts (email + password + their own Repliz keys).
+// Note: signing up here does NOT yet pull that user's own data into the
+// dashboard — that's Fase 2. Right now this just gets accounts + credentials
+// safely stored so Fase 2 has something to build on.
+// ---------------------------------------------------------------------------
+
+app.post("/api/signup", async (req, res) => {
+  if (!pool) return res.status(500).json({ message: "database not configured" });
+  const { email, password, replizAccessKey, replizSecretKey } = req.body || {};
+  if (!email?.trim() || !password || password.length < 6) {
+    return res.status(400).json({ message: "email dan password (min 6 karakter) wajib diisi" });
+  }
+  try {
+    const passwordHash = await bcrypt.hash(password, 10);
+    const secretEnc = replizSecretKey ? encryptSecret(replizSecretKey) : null;
+    await pool.query(
+      `INSERT INTO users (email, password_hash, repliz_access_key, repliz_secret_key_enc) VALUES ($1, $2, $3, $4)`,
+      [email.trim().toLowerCase(), passwordHash, replizAccessKey || null, secretEnc]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.code === "23505") return res.status(409).json({ message: "Email sudah terdaftar" });
+    console.error("Signup failed:", err.message);
+    res.status(500).json({ message: "Gagal mendaftar, coba lagi" });
+  }
+});
+
+app.post("/api/user-login", async (req, res) => {
+  if (!pool) return res.status(500).json({ message: "database not configured" });
+  const { email, password } = req.body || {};
+  if (!email || !password) return res.status(400).json({ message: "email dan password wajib diisi" });
+  try {
+    const result = await pool.query(`SELECT id, email, password_hash FROM users WHERE email = $1`, [email.trim().toLowerCase()]);
+    const user = result.rows[0];
+    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+      return res.status(401).json({ message: "Email atau password salah" });
+    }
+    res.json({ ok: true, userId: user.id, email: user.email });
+  } catch (err) {
+    console.error("Login failed:", err.message);
+    res.status(500).json({ message: "Gagal login, coba lagi" });
+  }
+});
+
 // Public, content-free aggregate numbers for the marketing landing page —
 // no auth needed since it's just counts, no message/contact content exposed.
 app.get("/api/public-stats", (req, res) => {
@@ -496,5 +589,6 @@ io.on("connection", (socket) => {
 
 server.listen(PORT, () => {
   console.log(`Prof Admin sync service running on :${PORT}`);
+  initDb().catch((err) => console.error("DB init failed:", err.message));
   loadAccountsCache().then(backfillAllChats).then(startPolling);
 });
