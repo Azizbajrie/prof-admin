@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { io } from "socket.io-client";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import {
   Search, MessageCircle, Mail, Heart, Share2, Clock, Send,
   LayoutDashboard, Inbox, Users, Settings, ChevronDown,
@@ -164,7 +164,7 @@ const STRINGS = {
     likes: "Suka", comments: "Komentar", shares: "Dibagikan",
     responseTime: "Waktu respon", waitingReply: "Menunggu balasan", alreadyReplied: "Sudah dibalas",
     dashboardTitle: "Ringkasan performa", dashboardSub: "Semua akun dan platform, digabung jadi satu pandangan",
-    periodToday: "Hari ini", periodWeek: "Minggu ini", periodMonth: "Bulan ini",
+    periodToday: "Hari ini", periodWeek: "Minggu ini", periodMonth: "Bulan ini", periodYear: "Tahun ini",
     totalComments: "Total komentar", totalDms: "Total DM", totalLikes: "Total suka", totalShares: "Total dibagikan",
     perAccount: "Performa per akun", perPlatform: "Performa per platform", bestContent: "Konten performa terbaik",
     conversations: "percakapan",
@@ -198,7 +198,7 @@ const STRINGS = {
     likes: "Likes", comments: "Comments", shares: "Shares",
     responseTime: "Response time", waitingReply: "Awaiting reply", alreadyReplied: "Replied",
     dashboardTitle: "Performance overview", dashboardSub: "All accounts and platforms, in one view",
-    periodToday: "Today", periodWeek: "This week", periodMonth: "This month",
+    periodToday: "Today", periodWeek: "This week", periodMonth: "This month", periodYear: "This year",
     totalComments: "Total comments", totalDms: "Total DMs", totalLikes: "Total likes", totalShares: "Total shares",
     perAccount: "Performance per account", perPlatform: "Performance per platform", bestContent: "Best performing content",
     conversations: "conversations",
@@ -214,7 +214,16 @@ const STRINGS = {
   },
 };
 
-function platformLabel(p) { return p === "instagram" ? "Instagram" : "Threads"; }
+const PLATFORM_NAMES = { instagram: "Instagram", threads: "Threads", facebook: "Facebook", tiktok: "TikTok", youtube: "YouTube", linkedin: "LinkedIn" };
+const PLATFORM_COLORS = {
+  instagram: { dark: "#ec4899", light: "#db2777" },
+  threads: { dark: "#a1a1aa", light: "#71717a" },
+  facebook: { dark: "#3b82f6", light: "#2563eb" },
+  tiktok: { dark: "#f43f5e", light: "#e11d48" },
+  youtube: { dark: "#ef4444", light: "#dc2626" },
+  linkedin: { dark: "#0ea5e9", light: "#0284c7" },
+};
+function platformLabel(p) { return PLATFORM_NAMES[p] || (p ? p[0].toUpperCase() + p.slice(1) : "Lainnya"); }
 function platformChip(p, t) { return p === "instagram" ? t.chipInstagram : t.chipThreads; }
 
 function TypeIcon({ type, className }) {
@@ -377,17 +386,32 @@ function Dashboard({ onLogout }) {
   }
 
   // --- Dashboard aggregates ---
+  // Filter the underlying data by the selected period before computing any stats.
+  const periodData = useMemo(() => {
+    const now = new Date();
+    let cutoff;
+    if (period === "today") cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    else if (period === "week") cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    else if (period === "month") cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    else if (period === "year") cutoff = new Date(now.getFullYear(), 0, 1);
+    else return data;
+    return data.filter((c) => {
+      const t = new Date(c.time);
+      return !isNaN(t) && t >= cutoff;
+    });
+  }, [data, period]);
+
   const totals = useMemo(() => {
-    const commentCount = data.filter((c) => c.type === "comment").length;
-    const dmCount = data.filter((c) => c.type === "dm").length;
-    const likes = data.reduce((sum, c) => sum + c.likes, 0);
-    const shares = data.reduce((sum, c) => sum + c.shares, 0);
+    const commentCount = periodData.filter((c) => c.type === "comment").length;
+    const dmCount = periodData.filter((c) => c.type === "dm").length;
+    const likes = periodData.reduce((sum, c) => sum + c.likes, 0);
+    const shares = periodData.reduce((sum, c) => sum + c.shares, 0);
     return { commentCount, dmCount, likes, shares };
-  }, [data]);
+  }, [periodData]);
 
   const perAccount = useMemo(() => {
     const map = new Map();
-    data.forEach((c) => {
+    periodData.forEach((c) => {
       const key = c.account;
       const cur = map.get(key) || { account: c.account, platforms: new Set(), count: 0, likes: 0, comments: 0, shares: 0 };
       cur.platforms.add(c.platform);
@@ -398,24 +422,34 @@ function Dashboard({ onLogout }) {
       map.set(key, cur);
     });
     return Array.from(map.values()).sort((a, b) => b.likes + b.comments - (a.likes + a.comments));
-  }, [data]);
+  }, [periodData]);
 
   const perPlatform = useMemo(() => {
     const map = new Map();
-    data.forEach((c) => {
-      const cur = map.get(c.platform) || { platform: c.platform, count: 0, likes: 0, comments: 0, shares: 0 };
+    periodData.forEach((c) => {
+      const key = c.platform || "lainnya";
+      const cur = map.get(key) || { platform: key, count: 0, likes: 0, comments: 0, shares: 0 };
       cur.count += 1;
       cur.likes += c.likes;
       cur.comments += c.comments;
       cur.shares += c.shares;
-      map.set(c.platform, cur);
+      map.set(key, cur);
     });
     return Array.from(map.values());
-  }, [data]);
+  }, [periodData]);
+
+  const typeSplit = useMemo(() => {
+    const comment = periodData.filter((c) => c.type === "comment").length;
+    const dm = periodData.filter((c) => c.type === "dm").length;
+    return [
+      { name: s.comment, value: comment },
+      { name: "DM", value: dm },
+    ];
+  }, [periodData, s]);
 
   const bestContent = useMemo(
-    () => [...data].sort((a, b) => (b.likes + b.comments + b.shares) - (a.likes + a.comments + a.shares)).slice(0, 3),
-    [data]
+    () => [...periodData].sort((a, b) => (b.likes + b.comments + b.shares) - (a.likes + a.comments + a.shares)).slice(0, 3),
+    [periodData]
   );
 
   const navItems = [
@@ -488,6 +522,7 @@ function Dashboard({ onLogout }) {
                 { key: "today", label: s.periodToday },
                 { key: "week", label: s.periodWeek },
                 { key: "month", label: s.periodMonth },
+                { key: "year", label: s.periodYear },
               ].map((p) => (
                 <button
                   key={p.key}
@@ -518,7 +553,7 @@ function Dashboard({ onLogout }) {
             ))}
           </div>
 
-          <div className="grid grid-cols-2 gap-4 mb-5">
+          <div className="grid grid-cols-3 gap-4 mb-5">
             <div className={`rounded-xl border p-4 ${t.card}`}>
               <div className={`text-xs mb-3 flex items-center gap-1.5 ${t.textMuted}`}>
                 <TrendingUp className="w-3.5 h-3.5" /> {s.perAccount}
@@ -587,6 +622,57 @@ function Dashboard({ onLogout }) {
                     <Bar dataKey="shares" name={s.shares} fill="url(#barShares)" radius={[4, 4, 0, 0]} isAnimationActive animationDuration={600} />
                   </BarChart>
                 </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className={`rounded-xl border p-4 ${t.card}`}>
+              <div className={`text-xs mb-3 flex items-center gap-1.5 ${t.textMuted}`}>
+                <MessageCircle className="w-3.5 h-3.5" /> {s.comment} vs DM
+              </div>
+              <div style={{ width: "100%", height: 180 }}>
+                <ResponsiveContainer>
+                  <PieChart>
+                    <defs>
+                      <linearGradient id="pieComment" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0%" stopColor="#fb923c" />
+                        <stop offset="100%" stopColor="#9a3412" />
+                      </linearGradient>
+                      <linearGradient id="pieDm" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0%" stopColor="#fbbf24" />
+                        <stop offset="100%" stopColor="#92400e" />
+                      </linearGradient>
+                    </defs>
+                    <Pie
+                      data={typeSplit.some((d) => d.value > 0) ? typeSplit : [{ name: "-", value: 1 }]}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={45}
+                      outerRadius={75}
+                      paddingAngle={typeSplit.some((d) => d.value > 0) ? 3 : 0}
+                      isAnimationActive
+                      animationDuration={600}
+                    >
+                      <Cell fill="url(#pieComment)" />
+                      <Cell fill={typeSplit.some((d) => d.value > 0) ? "url(#pieDm)" : (themeMode === "dark" ? "#3f3f46" : "#e5e7eb")} />
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        background: themeMode === "dark" ? "#18181b" : "#fff",
+                        border: "1px solid #7c2d12",
+                        borderRadius: 8,
+                        fontSize: 12,
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex items-center justify-center gap-4 -mt-2 text-[11px]">
+                <span className={`flex items-center gap-1.5 ${t.textSoft}`}>
+                  <span className="w-2 h-2 rounded-full bg-orange-500" /> {s.comment} ({typeSplit[0].value})
+                </span>
+                <span className={`flex items-center gap-1.5 ${t.textSoft}`}>
+                  <span className="w-2 h-2 rounded-full bg-amber-400" /> DM ({typeSplit[1].value})
+                </span>
               </div>
             </div>
           </div>
