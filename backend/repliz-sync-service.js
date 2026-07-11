@@ -174,6 +174,7 @@ function normalizeComment(doc) {
       ? {
           caption: doc.content.title || doc.content.description || "",
           thumbnail: doc.content.medias?.[0]?.thumbnail || null,
+          url: doc.content.url || null,
         }
       : null,
     thread: [{ from: "contact", text: doc.comment?.text, time: doc.comment?.createdAt }],
