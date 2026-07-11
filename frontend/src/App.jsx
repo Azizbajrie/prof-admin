@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Inbox, Users, Settings, ChevronDown,
   CircleCheck, CircleDot, AtSign, Image as ImageIcon,
   TrendingUp, Trophy, Globe, Moon, Sun, CheckCircle2, AlertTriangle, UserPlus, X,
-  ArrowRight, Lock, Zap, LayoutGrid, Sparkles, LogOut,
+  ArrowRight, Lock, Zap, LayoutGrid, Sparkles, LogOut, ExternalLink,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -167,6 +167,7 @@ const STRINGS = {
     periodToday: "Hari ini", periodWeek: "Minggu ini", periodMonth: "Bulan ini", periodYear: "Tahun ini",
     totalComments: "Total komentar", totalDms: "Total DM", totalLikes: "Total suka", totalShares: "Total dibagikan",
     perAccount: "Performa per akun", perPlatform: "Performa per platform", bestContent: "Konten performa terbaik",
+    noLink: "Tanpa link",
     conversations: "percakapan",
     accountsTitle: "Akun terintegrasi", accountsSub: "akun terhubung ke Prof Admin", connected: "Terhubung", needsAttention: "Perlu perhatian",
     settingsTitle: "Pengaturan", settingsSub: "Sesuaikan bahasa dan tampilan dashboard",
@@ -201,6 +202,7 @@ const STRINGS = {
     periodToday: "Today", periodWeek: "This week", periodMonth: "This month", periodYear: "This year",
     totalComments: "Total comments", totalDms: "Total DMs", totalLikes: "Total likes", totalShares: "Total shares",
     perAccount: "Performance per account", perPlatform: "Performance per platform", bestContent: "Best performing content",
+    noLink: "No link",
     conversations: "conversations",
     accountsTitle: "Integrated accounts", accountsSub: "accounts connected to Prof Admin", connected: "Connected", needsAttention: "Needs attention",
     settingsTitle: "Settings", settingsSub: "Adjust the dashboard's language and appearance",
@@ -448,7 +450,7 @@ function Dashboard({ onLogout }) {
   }, [periodData, s]);
 
   const bestContent = useMemo(
-    () => [...periodData].sort((a, b) => (b.likes + b.comments + b.shares) - (a.likes + a.comments + a.shares)).slice(0, 3),
+    () => [...periodData].sort((a, b) => (b.likes + b.comments + b.shares) - (a.likes + a.comments + a.shares)).slice(0, 10),
     [periodData]
   );
 
@@ -681,23 +683,38 @@ function Dashboard({ onLogout }) {
             <div className={`text-xs mb-3 flex items-center gap-1.5 ${t.textMuted}`}>
               <Trophy className="w-3.5 h-3.5 text-orange-400" /> {s.bestContent}
             </div>
-            <div className="flex flex-col gap-2.5">
-              {bestContent.map((c, i) => (
-                <div key={c.id} className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 ${t.cardMuted}`}>
-                  <div className="w-6 h-6 rounded-full bg-gradient-to-br from-orange-500 to-orange-800 flex items-center justify-center text-white text-xs font-medium shrink-0">
-                    {i + 1}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className={`truncate ${t.textBody}`}>{c.post.caption}</div>
-                    <div className={`text-[11px] ${t.textMuted}`}>{c.account} · {platformLabel(c.platform)}</div>
-                  </div>
-                  <div className="flex items-center gap-3 text-xs shrink-0">
-                    <span className="flex items-center gap-1 text-pink-400"><Heart className="w-3 h-3" />{c.likes}</span>
-                    <span className="flex items-center gap-1 text-orange-400"><MessageCircle className="w-3 h-3" />{c.comments}</span>
-                    <span className="flex items-center gap-1 text-amber-400"><Share2 className="w-3 h-3" />{c.shares}</span>
-                  </div>
-                </div>
-              ))}
+            <div className="flex flex-col gap-2.5 max-h-[196px] overflow-y-auto pr-1">
+              {bestContent.map((c, i) => {
+                const url = c.post?.url;
+                const Row = url ? "a" : "div";
+                return (
+                  <Row
+                    key={c.id}
+                    {...(url ? { href: url, target: "_blank", rel: "noopener noreferrer" } : {})}
+                    className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors ${
+                      url ? "cursor-pointer hover:border-orange-700" : "opacity-60"
+                    } ${t.cardMuted}`}
+                  >
+                    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-orange-500 to-orange-800 flex items-center justify-center text-white text-xs font-medium shrink-0">
+                      {i + 1}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className={`truncate ${t.textBody}`}>{c.post?.caption || c.preview}</div>
+                      <div className={`text-[11px] ${t.textMuted}`}>{c.account} · {platformLabel(c.platform)}</div>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs shrink-0">
+                      <span className="flex items-center gap-1 text-pink-400"><Heart className="w-3 h-3" />{c.likes}</span>
+                      <span className="flex items-center gap-1 text-orange-400"><MessageCircle className="w-3 h-3" />{c.comments}</span>
+                      <span className="flex items-center gap-1 text-amber-400"><Share2 className="w-3 h-3" />{c.shares}</span>
+                    </div>
+                    {url ? (
+                      <ExternalLink className={`w-3.5 h-3.5 shrink-0 ${t.textMuted}`} />
+                    ) : (
+                      <span className={`text-[10px] shrink-0 ${t.textMuted}`}>{s.noLink}</span>
+                    )}
+                  </Row>
+                );
+              })}
             </div>
           </div>
         </div>
