@@ -301,7 +301,7 @@ async function pollOnce() {
 
     const changed = [...changedComments, ...changedChats];
     if (changed.length && io) {
-      io.emit("inbox:update", changed);
+      io.to("team").emit("inbox:update", changed);
     }
     console.log(`Poll ok — ${changedComments.length} comments, ${changedChats.length} chats`);
   } catch (err) {
@@ -320,7 +320,7 @@ async function backfillAllChats() {
     );
     chatDocs.map(normalizeChat).forEach(upsertConversation);
     console.log(`Chat backfill loaded: ${chatDocs.length} conversations`);
-    if (io) io.emit("inbox:update", Array.from(store.conversations.values()));
+    if (io) io.to("team").emit("inbox:update", Array.from(store.conversations.values()));
   } catch (err) {
     console.warn("Chat backfill skipped:", err.response?.data?.message || err.message);
   }
@@ -391,7 +391,7 @@ app.post("/api/inbox/:id/reply", async (req, res) => {
     conv.status = "replied";
     conv.thread.push({ from: "admin", text, time: new Date().toISOString() });
     store.conversations.set(conv.id, conv);
-    io?.emit("inbox:update", [conv]);
+    io?.to("team").emit("inbox:update", [conv]);
     res.json(conv);
   } catch (err) {
     const status = err.response?.status;
@@ -409,7 +409,7 @@ app.post("/api/inbox/:id/assign", (req, res) => {
   store.assignments.set(conv.id, adminName || null);
   conv.assignedTo = adminName || null;
   store.conversations.set(conv.id, conv);
-  io?.emit("inbox:update", [conv]);
+  io?.to("team").emit("inbox:update", [conv]);
   res.json(conv);
 });
 
@@ -507,7 +507,7 @@ app.post("/api/admins", (req, res) => {
   const name = (req.body?.name || "").trim();
   if (!name) return res.status(400).json({ message: "name is required" });
   if (!store.admins.includes(name)) store.admins.push(name);
-  io?.emit("admins:update", store.admins);
+  io?.to("team").emit("admins:update", store.admins);
   res.json(store.admins);
 });
 
@@ -521,7 +521,7 @@ app.delete("/api/admins/:name", (req, res) => {
       store.assignments.delete(c.id);
     }
   });
-  io?.emit("admins:update", store.admins);
+  io?.to("team").emit("admins:update", store.admins);
   res.json(store.admins);
 });
 
@@ -545,7 +545,7 @@ app.post("/webhooks/repliz", async (req, res) => {
       const normalized = normalizeComment(data);
       await enrichWithStatistics([normalized]);
       const conv = upsertConversation(normalized);
-      io?.emit("inbox:update", [conv]);
+      io?.to("team").emit("inbox:update", [conv]);
       console.log(`Webhook: new comment from ${conv.contact} on ${conv.account}`);
     } else if (type === "chat" && data?.chat) {
       const normalized = normalizeChat(data.chat);
@@ -564,7 +564,7 @@ app.post("/webhooks/repliz", async (req, res) => {
         ];
       }
       const conv = upsertConversation(normalized);
-      io?.emit("inbox:update", [conv]);
+      io?.to("team").emit("inbox:update", [conv]);
       console.log(`Webhook: new chat message from ${conv.contact} on ${conv.account}`);
     }
     // "schedule" and other webhook types are ignored — not relevant to the inbox.
@@ -780,8 +780,14 @@ io = new Server(server, { cors: { origin: "*" } });
 
 
 io.on("connection", (socket) => {
-  socket.emit("inbox:update", Array.from(store.conversations.values()));
-  socket.emit("admins:update", store.admins);
+  // Team (kode akses) dashboards call this on connect. Only these sockets
+  // get the shared team snapshot/updates — this used to be sent to EVERY
+  // connecting socket, which leaked team data into personal dashboards too.
+  socket.on("join-team", () => {
+    socket.join("team");
+    socket.emit("inbox:update", Array.from(store.conversations.values()));
+    socket.emit("admins:update", store.admins);
+  });
 
   // Personal (Fase 2) dashboards call this after connecting so they only
   // receive updates for their own tenant, not the shared team data.
