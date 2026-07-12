@@ -240,7 +240,14 @@ function TypeIcon({ type, className }) {
 // Falls back to localhost so local testing still works without extra setup.
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
-function Dashboard({ onLogout }) {
+function Dashboard({ onLogout, userId }) {
+  const isPersonal = !!userId;
+  // In personal mode, every call goes to /api/me/... with an x-user-id header
+  // instead of the shared team endpoints — that's what keeps each user's
+  // data separate.
+  const apiPath = (p) => `${API_URL}${isPersonal ? "/api/me" : "/api"}${p}`;
+  const apiHeaders = (extra = {}) => ({ ...(isPersonal ? { "x-user-id": String(userId) } : {}), ...extra });
+
   const [themeMode, setThemeMode] = useState("dark");
   const [lang, setLang] = useState("id");
   const t = THEMES[themeMode];
@@ -261,23 +268,28 @@ function Dashboard({ onLogout }) {
   const [period, setPeriod] = useState("today");
   const [admins, setAdmins] = useState(DEFAULT_ADMINS);
   const [newAdminName, setNewAdminName] = useState("");
+  const [replizKeysForm, setReplizKeysForm] = useState({ replizAccessKey: "", replizSecretKey: "" });
+  const [replizKeysStatus, setReplizKeysStatus] = useState(null);
 
   // Load the inbox once on mount, then keep it live via WebSocket.
   useEffect(() => {
-    fetch(`${API_URL}/api/inbox`)
+    fetch(apiPath("/inbox"), { headers: apiHeaders() })
       .then((res) => res.json())
       .then((docs) => {
-        setData(docs);
+        setData(Array.isArray(docs) ? docs : []);
         setConnectionError(false);
         if (docs.length) setSelectedId((cur) => cur ?? docs[0].id);
       })
       .catch(() => {
         setConnectionError(true);
-        setData(CONVERSATIONS);
-        setSelectedId(CONVERSATIONS[0].id);
+        if (!isPersonal) {
+          setData(CONVERSATIONS);
+          setSelectedId(CONVERSATIONS[0].id);
+        }
       });
 
     const socket = io(API_URL);
+    if (isPersonal) socket.emit("join", userId);
     socket.on("inbox:update", (changed) => {
       setData((prev) => {
         const map = new Map(prev.map((c) => [c.id, c]));
@@ -290,24 +302,27 @@ function Dashboard({ onLogout }) {
     socket.on("connect_error", () => setConnectionError(true));
 
     return () => socket.disconnect();
-  }, []);
+  }, [userId]);
 
   function addAdmin() {
     const name = newAdminName.trim();
     if (!name || admins.includes(name)) return;
     setNewAdminName("");
     setAdmins((prev) => [...prev, name]); // optimistic, socket will confirm
-    fetch(`${API_URL}/api/admins`, {
+    fetch(apiPath("/admins"), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: apiHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ name }),
-    }).catch(() => {});
+    })
+      .then((res) => (isPersonal ? res.json() : null))
+      .then((list) => list && setAdmins(list))
+      .catch(() => {});
   }
 
   function removeAdmin(name) {
     setAdmins((prev) => prev.filter((a) => a !== name)); // optimistic
     setData((prev) => prev.map((c) => (c.assignedTo === name ? { ...c, assignedTo: null } : c)));
-    fetch(`${API_URL}/api/admins/${encodeURIComponent(name)}`, { method: "DELETE" }).catch(() => {});
+    fetch(apiPath(`/admins/${encodeURIComponent(name)}`), { method: "DELETE", headers: apiHeaders() }).catch(() => {});
   }
 
   const accountNames = useMemo(() => Array.from(new Set(data.map((c) => c.account))), [data]);
@@ -335,7 +350,7 @@ function Dashboard({ onLogout }) {
     setReplyError(null);
     if (selected.thread && selected.thread.length > 0) return;
     setThreadLoading(true);
-    fetch(`${API_URL}/api/inbox/${encodeURIComponent(selected.id)}`)
+    fetch(apiPath(`/inbox/${encodeURIComponent(selected.id)}`), { headers: apiHeaders() })
       .then((res) => res.json())
       .then((full) => {
         setData((prev) => prev.map((c) => (c.id === full.id ? full : c)));
@@ -361,16 +376,16 @@ function Dashboard({ onLogout }) {
           : c
       )
     );
-    fetch(`${API_URL}/api/inbox/${encodeURIComponent(selected.id)}/reply`, {
+    fetch(apiPath(`/inbox/${encodeURIComponent(selected.id)}/reply`), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: apiHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ text }),
     })
       .then(async (res) => {
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
           const detailText = typeof body.detail === "string" ? body.detail : body.detail?.message || JSON.stringify(body.detail || "");
-          const label = detailText && detailText !== '""' ? detailText : `HTTP ${body.status || res.status}`;
+          const label = detailText && detailText !== '""' ? detailText : body.message || `HTTP ${body.status || res.status}`;
           throw new Error(label);
         }
       })
@@ -380,11 +395,28 @@ function Dashboard({ onLogout }) {
   function claim(adminName) {
     if (!selected) return;
     setData((prev) => prev.map((c) => (c.id === selected.id ? { ...c, assignedTo: adminName || null } : c)));
-    fetch(`${API_URL}/api/inbox/${encodeURIComponent(selected.id)}/assign`, {
+    fetch(apiPath(`/inbox/${encodeURIComponent(selected.id)}/assign`), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: apiHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ adminName: adminName || null }),
     }).catch(() => setConnectionError(true));
+  }
+
+  function saveReplizKeys(e) {
+    e.preventDefault();
+    setReplizKeysStatus("saving");
+    fetch(apiPath("/repliz-keys"), {
+      method: "POST",
+      headers: apiHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(replizKeysForm),
+    })
+      .then(async (res) => {
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.message || "Gagal menyimpan");
+        setReplizKeysStatus("saved");
+        setTimeout(() => window.location.reload(), 1200); // reload so the dashboard picks up the fresh connection
+      })
+      .catch((err) => setReplizKeysStatus(err.message));
   }
 
   // --- Dashboard aggregates ---
@@ -753,6 +785,47 @@ function Dashboard({ onLogout }) {
         <div className="flex-1 overflow-y-auto p-6 max-w-lg">
           <div className={`text-lg font-medium ${t.textStrong}`}>{s.settingsTitle}</div>
           <div className={`text-xs mt-0.5 mb-6 ${t.textMuted}`}>{s.settingsSub}</div>
+
+          {isPersonal && (
+            <div className={`rounded-xl border p-4 mb-4 ${t.card}`}>
+              <div className={`text-xs mb-3 flex items-center gap-1.5 ${t.textMuted}`}>
+                <Lock className="w-3.5 h-3.5" /> Akun Repliz kamu
+              </div>
+              <form onSubmit={saveReplizKeys} className="flex flex-col gap-3">
+                <div>
+                  <label className={`text-xs mb-1 block ${t.textMuted}`}>Repliz Access Key</label>
+                  <input
+                    type="text"
+                    value={replizKeysForm.replizAccessKey}
+                    onChange={(e) => setReplizKeysForm((f) => ({ ...f, replizAccessKey: e.target.value }))}
+                    placeholder="Access key dari Repliz"
+                    className={`w-full rounded-lg px-3 py-2 text-sm outline-none border ${t.input}`}
+                  />
+                </div>
+                <div>
+                  <label className={`text-xs mb-1 block ${t.textMuted}`}>Repliz Secret Key</label>
+                  <input
+                    type="password"
+                    value={replizKeysForm.replizSecretKey}
+                    onChange={(e) => setReplizKeysForm((f) => ({ ...f, replizSecretKey: e.target.value }))}
+                    placeholder="Secret key dari Repliz"
+                    className={`w-full rounded-lg px-3 py-2 text-sm outline-none border ${t.input}`}
+                  />
+                </div>
+                {replizKeysStatus === "saved" && <div className="text-green-400 text-xs">Tersimpan! Memuat ulang...</div>}
+                {replizKeysStatus && replizKeysStatus !== "saving" && replizKeysStatus !== "saved" && (
+                  <div className="text-red-400 text-xs">{replizKeysStatus}</div>
+                )}
+                <button
+                  type="submit"
+                  disabled={replizKeysStatus === "saving"}
+                  className="w-full py-2.5 rounded-lg bg-gradient-to-r from-orange-600 to-orange-800 hover:from-orange-500 hover:to-orange-700 text-white font-medium disabled:opacity-60"
+                >
+                  {replizKeysStatus === "saving" ? "Menyimpan..." : "Simpan & Hubungkan"}
+                </button>
+              </form>
+            </div>
+          )}
 
           <div className={`rounded-xl border p-4 mb-4 ${t.card}`}>
             <div className={`text-xs mb-3 flex items-center gap-1.5 ${t.textMuted}`}>
@@ -1406,12 +1479,15 @@ function SignupPage({ onDone, onBackToLanding, apiUrl }) {
 // Login page
 // ---------------------------------------------------------------------------
 
-function LoginPage({ onLogin, onSignup, apiUrl }) {
+function LoginPage({ onLogin, onPersonalLogin, onSignup, apiUrl }) {
+  const [tab, setTab] = useState("personal"); // "personal" | "team"
   const [code, setCode] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  function submit(e) {
+  function submitTeamCode(e) {
     e.preventDefault();
     if (!code.trim()) return;
     setLoading(true);
@@ -1430,38 +1506,106 @@ function LoginPage({ onLogin, onSignup, apiUrl }) {
       .finally(() => setLoading(false));
   }
 
+  function submitPersonal(e) {
+    e.preventDefault();
+    if (!email.trim() || !password) return;
+    setLoading(true);
+    setError("");
+    fetch(`${apiUrl}/api/user-login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: email.trim(), password }),
+    })
+      .then(async (res) => {
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.message || "Gagal login");
+        return body;
+      })
+      .then((body) => onPersonalLogin(body.userId, body.email))
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+  }
+
   return (
     <div className="w-full min-h-screen bg-gradient-to-br from-black via-zinc-950 to-orange-950 text-zinc-200 flex items-center justify-center px-6">
       <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
+        <div className="text-center mb-6">
           <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-600 to-orange-900 flex items-center justify-center mx-auto mb-4">
             <Lock className="w-5 h-5 text-white" />
           </div>
           <div className="font-medium text-lg bg-gradient-to-r from-orange-400 to-amber-200 bg-clip-text text-transparent">
             Prof Admin
           </div>
-          <div className="text-zinc-500 text-xs mt-1">Masukkan kode akses buat lanjut</div>
         </div>
 
-        <form onSubmit={submit} className="rounded-xl border border-orange-950/40 bg-zinc-900/60 p-5">
-          <label className="text-xs text-zinc-500 mb-1.5 block">Kode akses</label>
-          <input
-            type="password"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            placeholder="••••••••"
-            autoFocus
-            className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-zinc-200 placeholder-zinc-600 outline-none focus:border-orange-700 mb-3"
-          />
-          {error && <div className="text-red-400 text-xs mb-3">{error}</div>}
+        <div className="flex rounded-lg border border-orange-950/40 bg-zinc-900/60 p-1 mb-4">
           <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-2.5 rounded-lg bg-gradient-to-r from-orange-600 to-orange-800 hover:from-orange-500 hover:to-orange-700 text-white font-medium disabled:opacity-60"
+            onClick={() => setTab("personal")}
+            className={`flex-1 py-1.5 rounded-md text-xs ${tab === "personal" ? "bg-gradient-to-r from-orange-600 to-orange-800 text-white" : "text-zinc-400"}`}
           >
-            {loading ? "Memeriksa..." : "Masuk"}
+            Akun Saya
           </button>
-        </form>
+          <button
+            onClick={() => setTab("team")}
+            className={`flex-1 py-1.5 rounded-md text-xs ${tab === "team" ? "bg-gradient-to-r from-orange-600 to-orange-800 text-white" : "text-zinc-400"}`}
+          >
+            Kode Tim
+          </button>
+        </div>
+
+        {tab === "personal" ? (
+          <form onSubmit={submitPersonal} className="rounded-xl border border-orange-950/40 bg-zinc-900/60 p-5 flex flex-col gap-3">
+            <div>
+              <label className="text-xs text-zinc-500 mb-1 block">Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="kamu@email.com"
+                autoFocus
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-zinc-200 placeholder-zinc-600 outline-none focus:border-orange-700"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-zinc-500 mb-1 block">Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-zinc-200 placeholder-zinc-600 outline-none focus:border-orange-700"
+              />
+            </div>
+            {error && <div className="text-red-400 text-xs">{error}</div>}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-2.5 rounded-lg bg-gradient-to-r from-orange-600 to-orange-800 hover:from-orange-500 hover:to-orange-700 text-white font-medium disabled:opacity-60"
+            >
+              {loading ? "Memeriksa..." : "Masuk"}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={submitTeamCode} className="rounded-xl border border-orange-950/40 bg-zinc-900/60 p-5">
+            <label className="text-xs text-zinc-500 mb-1.5 block">Kode akses tim</label>
+            <input
+              type="password"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="••••••••"
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-zinc-200 placeholder-zinc-600 outline-none focus:border-orange-700 mb-3"
+            />
+            {error && <div className="text-red-400 text-xs mb-3">{error}</div>}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-2.5 rounded-lg bg-gradient-to-r from-orange-600 to-orange-800 hover:from-orange-500 hover:to-orange-700 text-white font-medium disabled:opacity-60"
+            >
+              {loading ? "Memeriksa..." : "Masuk"}
+            </button>
+          </form>
+        )}
+
         <button onClick={onSignup} className="w-full text-center text-zinc-500 text-xs mt-4 hover:text-zinc-300">
           Belum punya akun? Daftar
         </button>
@@ -1476,21 +1620,37 @@ function LoginPage({ onLogin, onSignup, apiUrl }) {
 
 export default function App() {
   const [stage, setStage] = useState(() => (localStorage.getItem("profadmin_auth") === "true" ? "dashboard" : "landing"));
+  const [userId, setUserId] = useState(() => {
+    const saved = localStorage.getItem("profadmin_user_id");
+    return saved ? Number(saved) : null;
+  });
   const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
   function handleLogin() {
     localStorage.setItem("profadmin_auth", "true");
+    localStorage.removeItem("profadmin_user_id");
+    setUserId(null);
+    setStage("dashboard");
+  }
+
+  function handlePersonalLogin(id) {
+    localStorage.setItem("profadmin_auth", "true");
+    localStorage.setItem("profadmin_user_id", String(id));
+    setUserId(id);
     setStage("dashboard");
   }
 
   function handleLogout() {
     localStorage.removeItem("profadmin_auth");
+    localStorage.removeItem("profadmin_user_id");
+    setUserId(null);
     setStage("landing");
   }
 
   if (stage === "landing") return <LandingPage onLogin={() => setStage("login")} onSignup={() => setStage("signup")} />;
   if (stage === "signup")
     return <SignupPage onDone={() => setStage("login")} onBackToLanding={() => setStage("login")} apiUrl={apiUrl} />;
-  if (stage === "login") return <LoginPage onLogin={handleLogin} onSignup={() => setStage("signup")} apiUrl={apiUrl} />;
-  return <Dashboard onLogout={handleLogout} />;
+  if (stage === "login")
+    return <LoginPage onLogin={handleLogin} onPersonalLogin={handlePersonalLogin} onSignup={() => setStage("signup")} apiUrl={apiUrl} />;
+  return <Dashboard onLogout={handleLogout} userId={userId} />;
 }
