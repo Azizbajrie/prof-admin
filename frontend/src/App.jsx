@@ -175,6 +175,8 @@ const STRINGS = {
     adminList: "Daftar admin", adminAdd: "Tambah admin", adminPlaceholder: "Nama admin baru...",
     adminEmpty: "Belum ada admin, tambahin dulu di atas.",
     demoWarning: "Nggak bisa konek ke server Repliz — nampilin data contoh dulu.",
+    notConnectedYet: "Akun Repliz kamu belum terhubung.",
+    goToSettings: "Hubungkan sekarang",
     replyFailed: "Gagal mengirim balasan ke Repliz. Coba lagi sebentar lagi.",
     noPostDm: "Ini pesan langsung (DM), nggak terhubung ke postingan tertentu.",
     loadingThread: "Memuat percakapan...",
@@ -210,6 +212,8 @@ const STRINGS = {
     adminList: "Admin list", adminAdd: "Add admin", adminPlaceholder: "New admin name...",
     adminEmpty: "No admins yet, add one above.",
     demoWarning: "Can't reach the Repliz server — showing sample data instead.",
+    notConnectedYet: "Your Repliz account isn't connected yet.",
+    goToSettings: "Connect now",
     replyFailed: "Failed to send the reply to Repliz. Try again in a moment.",
     noPostDm: "This is a direct message, not tied to a specific post.",
     loadingThread: "Loading conversation...",
@@ -496,8 +500,15 @@ function Dashboard({ onLogout, userId }) {
   return (
     <div className={`w-full h-screen flex flex-col text-sm overflow-hidden ${t.page}`}>
       {connectionError && (
-        <div className="w-full bg-amber-900/60 border-b border-amber-700 text-amber-200 text-xs px-4 py-2 flex items-center gap-2 shrink-0">
-          <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {s.demoWarning}
+        <div className="w-full bg-amber-900/60 border-b border-amber-700 text-amber-200 text-xs px-4 py-2 flex items-center justify-between gap-2 shrink-0">
+          <span className="flex items-center gap-2">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {isPersonal ? s.notConnectedYet : s.demoWarning}
+          </span>
+          {isPersonal && (
+            <button onClick={() => setView("settings")} className="underline shrink-0">
+              {s.goToSettings}
+            </button>
+          )}
         </div>
       )}
       <div className="flex flex-1 min-h-0">
@@ -1346,7 +1357,7 @@ function LandingPage({ onLogin, onSignup }) {
 // ---------------------------------------------------------------------------
 
 function SignupPage({ onDone, onBackToLanding, apiUrl }) {
-  const [form, setForm] = useState({ email: "", password: "", replizAccessKey: "", replizSecretKey: "" });
+  const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
@@ -1390,7 +1401,7 @@ function SignupPage({ onDone, onBackToLanding, apiUrl }) {
           </div>
           <div className="text-zinc-100 font-medium mb-2">Akun berhasil dibuat!</div>
           <p className="text-zinc-500 text-sm mb-6">
-            Data akun lu tersimpan. Buat sekarang, akses ke dashboard masih pakai kode akses tim — hubungi admin buat dapetin itu.
+            Login pakai email & password lu di tab "Akun Saya". Nanti di dalam, buka <b>Pengaturan</b> buat hubungin akun Repliz lu.
           </p>
           <button
             onClick={onDone}
@@ -1421,6 +1432,7 @@ function SignupPage({ onDone, onBackToLanding, apiUrl }) {
               value={form.email}
               onChange={(e) => update("email", e.target.value)}
               placeholder="kamu@email.com"
+              autoFocus
               className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-zinc-200 placeholder-zinc-600 outline-none focus:border-orange-700"
             />
           </div>
@@ -1431,29 +1443,6 @@ function SignupPage({ onDone, onBackToLanding, apiUrl }) {
               value={form.password}
               onChange={(e) => update("password", e.target.value)}
               placeholder="Minimal 6 karakter"
-              className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-zinc-200 placeholder-zinc-600 outline-none focus:border-orange-700"
-            />
-          </div>
-          <div className="pt-1 border-t border-zinc-800">
-            <div className="text-xs text-zinc-500 mt-2 mb-1">Akun Repliz kamu (opsional, buat nanti)</div>
-          </div>
-          <div>
-            <label className="text-xs text-zinc-500 mb-1 block">Repliz Access Key</label>
-            <input
-              type="text"
-              value={form.replizAccessKey}
-              onChange={(e) => update("replizAccessKey", e.target.value)}
-              placeholder="Access key dari Repliz"
-              className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-zinc-200 placeholder-zinc-600 outline-none focus:border-orange-700"
-            />
-          </div>
-          <div>
-            <label className="text-xs text-zinc-500 mb-1 block">Repliz Secret Key</label>
-            <input
-              type="password"
-              value={form.replizSecretKey}
-              onChange={(e) => update("replizSecretKey", e.target.value)}
-              placeholder="Secret key dari Repliz"
               className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-zinc-200 placeholder-zinc-600 outline-none focus:border-orange-700"
             />
           </div>
@@ -1619,29 +1608,34 @@ function LoginPage({ onLogin, onPersonalLogin, onSignup, apiUrl }) {
 // ---------------------------------------------------------------------------
 
 export default function App() {
-  const [stage, setStage] = useState(() => (localStorage.getItem("profadmin_auth") === "true" ? "dashboard" : "landing"));
+  const [stage, setStage] = useState(() => {
+    const mode = localStorage.getItem("profadmin_mode");
+    return mode === "team" || mode === "personal" ? "dashboard" : "landing";
+  });
   const [userId, setUserId] = useState(() => {
+    if (localStorage.getItem("profadmin_mode") !== "personal") return null;
     const saved = localStorage.getItem("profadmin_user_id");
     return saved ? Number(saved) : null;
   });
   const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
   function handleLogin() {
-    localStorage.setItem("profadmin_auth", "true");
+    localStorage.setItem("profadmin_mode", "team");
     localStorage.removeItem("profadmin_user_id");
     setUserId(null);
     setStage("dashboard");
   }
 
   function handlePersonalLogin(id) {
-    localStorage.setItem("profadmin_auth", "true");
+    localStorage.setItem("profadmin_mode", "personal");
     localStorage.setItem("profadmin_user_id", String(id));
     setUserId(id);
     setStage("dashboard");
   }
 
   function handleLogout() {
-    localStorage.removeItem("profadmin_auth");
+    localStorage.removeItem("profadmin_mode");
+    localStorage.removeItem("profadmin_auth"); // old flag, in case it's still around from before
     localStorage.removeItem("profadmin_user_id");
     setUserId(null);
     setStage("landing");
