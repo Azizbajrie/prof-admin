@@ -164,7 +164,7 @@ const STRINGS = {
     likes: "Suka", comments: "Komentar", shares: "Dibagikan",
     responseTime: "Waktu respon", waitingReply: "Menunggu balasan", alreadyReplied: "Sudah dibalas",
     dashboardTitle: "Ringkasan performa", dashboardSub: "Semua akun dan platform, digabung jadi satu pandangan",
-    periodToday: "Hari ini", periodWeek: "Minggu ini", periodMonth: "Bulan ini", periodYear: "Tahun ini",
+    periodToday: "Hari ini", periodWeek: "Minggu ini", periodMonth: "Bulan ini", periodYear: "Tahun ini", periodAll: "Semua",
     totalComments: "Total komentar", totalDms: "Total DM", totalLikes: "Total suka", totalShares: "Total dibagikan",
     perAccount: "Performa per akun", perPlatform: "Performa per platform", bestContent: "Konten performa terbaik",
     noLink: "Tanpa link",
@@ -201,7 +201,7 @@ const STRINGS = {
     likes: "Likes", comments: "Comments", shares: "Shares",
     responseTime: "Response time", waitingReply: "Awaiting reply", alreadyReplied: "Replied",
     dashboardTitle: "Performance overview", dashboardSub: "All accounts and platforms, in one view",
-    periodToday: "Today", periodWeek: "This week", periodMonth: "This month", periodYear: "This year",
+    periodToday: "Today", periodWeek: "This week", periodMonth: "This month", periodYear: "This year", periodAll: "All time",
     totalComments: "Total comments", totalDms: "Total DMs", totalLikes: "Total likes", totalShares: "Total shares",
     perAccount: "Performance per account", perPlatform: "Performance per platform", bestContent: "Best performing content",
     noLink: "No link",
@@ -269,7 +269,7 @@ function Dashboard({ onLogout, userId }) {
   const [data, setData] = useState([]);
   const [connectionError, setConnectionError] = useState(false);
   const [showPost, setShowPost] = useState(true);
-  const [period, setPeriod] = useState("today");
+  const [period, setPeriod] = useState("all");
   const [admins, setAdmins] = useState(DEFAULT_ADMINS);
   const [newAdminName, setNewAdminName] = useState("");
   const [replizKeysForm, setReplizKeysForm] = useState({ replizAccessKey: "", replizSecretKey: "" });
@@ -578,6 +578,7 @@ function Dashboard({ onLogout, userId }) {
             </div>
             <div className="flex gap-1.5">
               {[
+                { key: "all", label: s.periodAll },
                 { key: "today", label: s.periodToday },
                 { key: "week", label: s.periodWeek },
                 { key: "month", label: s.periodMonth },
