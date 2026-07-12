@@ -579,12 +579,215 @@ app.post("/webhooks/repliz", async (req, res) => {
 // Boot
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Fase 2: per-user ("Akun Saya") multi-tenant system.
+// This runs ALONGSIDE the original shared-team system above — nothing here
+// touches the global `store`/`repliz` client, so the existing team dashboard
+// (kode akses login) keeps working exactly as before.
+// ---------------------------------------------------------------------------
+
+const tenants = new Map(); // userId -> { client, conversations: Map, admins: [], pollInterval }
+
+async function makeTenantClient(userId) {
+  if (!pool) throw new Error("database not configured");
+  const result = await pool.query(`SELECT repliz_access_key, repliz_secret_key_enc FROM users WHERE id = $1`, [userId]);
+  const user = result.rows[0];
+  if (!user || !user.repliz_access_key || !user.repliz_secret_key_enc) {
+    throw new Error("Akun Repliz belum di-setting. Lengkapi Access Key/Secret Key dulu di Pengaturan.");
+  }
+  const secretKey = decryptSecret(user.repliz_secret_key_enc);
+  return axios.create({ baseURL: "https://api.repliz.com", auth: { username: user.repliz_access_key, password: secretKey } });
+}
+
+async function tenantRequest(client, config, attempt = 1) {
+  try {
+    const res = await client.request(config);
+    return res.data;
+  } catch (err) {
+    if (err.response?.status === 429 && attempt <= 4) {
+      await new Promise((r) => setTimeout(r, attempt * 2000));
+      return tenantRequest(client, config, attempt + 1);
+    }
+    throw err;
+  }
+}
+
+async function getTenant(userId) {
+  if (tenants.has(userId)) return tenants.get(userId);
+  const client = await makeTenantClient(userId);
+  const tenant = { client, conversations: new Map(), admins: ["Admin"], userId };
+  tenants.set(userId, tenant);
+  tenantPollOnce(tenant); // fire the first poll immediately, don't wait
+  tenant.pollInterval = setInterval(() => tenantPollOnce(tenant), POLL_INTERVAL_MS);
+  return tenant;
+}
+
+function tenantUpsert(tenant, conv) {
+  const existing = tenant.conversations.get(conv.id);
+  const merged = { ...existing, ...conv, assignedTo: existing?.assignedTo || null };
+  tenant.conversations.set(conv.id, merged);
+  return merged;
+}
+
+async function tenantPollOnce(tenant) {
+  try {
+    const commentDocs = await getAllPages((page) =>
+      tenantRequest(tenant.client, { method: "GET", url: "/public/comment", params: { page, limit: 50, status: "pending" } })
+    );
+    const normalized = commentDocs.map(normalizeComment);
+    for (const c of normalized) {
+      if (!c.contentId || !c.accountId) continue;
+      try {
+        const stat = await tenantRequest(tenant.client, { method: "GET", url: `/public/content/${c.contentId}/statistic`, params: { accountId: c.accountId } });
+        c.likes = stat.like ?? 0;
+        c.shares = stat.share ?? 0;
+      } catch {
+        c.likes = 0;
+        c.shares = 0;
+      }
+    }
+    const changed = normalized.map((c) => tenantUpsert(tenant, c));
+    if (changed.length) io.to(`user:${tenant.userId}`).emit("inbox:update", changed);
+    console.log(`Tenant ${tenant.userId} poll ok — ${changed.length} comments`);
+  } catch (err) {
+    console.warn(`Tenant ${tenant.userId} poll failed:`, err.response?.data?.message || err.message);
+  }
+}
+
+function requireUser(req, res, next) {
+  const userId = Number(req.header("x-user-id"));
+  if (!userId) return res.status(401).json({ message: "login required" });
+  req.userId = userId;
+  next();
+}
+
+app.get("/api/me/inbox", requireUser, async (req, res) => {
+  try {
+    const tenant = await getTenant(req.userId);
+    res.json(Array.from(tenant.conversations.values()));
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.post("/api/me/inbox/:id/reply", requireUser, async (req, res) => {
+  const { text } = req.body;
+  if (!text?.trim()) return res.status(400).json({ message: "text is required" });
+  try {
+    const tenant = await getTenant(req.userId);
+    let conv = tenant.conversations.get(req.params.id);
+    if (!conv) {
+      const [kind, replizId] = req.params.id.split(":");
+      if (kind !== "comment" || !replizId) return res.status(404).json({ message: "not found" });
+      conv = { id: req.params.id, kind: "comment", type: "comment", replizId, thread: [], status: "pending" };
+    }
+    await tenantRequest(tenant.client, { method: "POST", url: `/public/comment/${conv.replizId}`, data: { text } });
+    await tenantRequest(tenant.client, { method: "PATCH", url: `/public/comment/${conv.replizId}/status`, data: { status: "resolved" } }).catch(() => {});
+    conv.status = "replied";
+    conv.thread.push({ from: "admin", text, time: new Date().toISOString() });
+    tenant.conversations.set(conv.id, conv);
+    io.to(`user:${req.userId}`).emit("inbox:update", [conv]);
+    res.json(conv);
+  } catch (err) {
+    res.status(400).json({ message: err.response?.data?.message || err.message });
+  }
+});
+
+app.post("/api/me/inbox/:id/assign", requireUser, async (req, res) => {
+  try {
+    const tenant = await getTenant(req.userId);
+    const conv = tenant.conversations.get(req.params.id);
+    if (!conv) return res.status(404).json({ message: "not found" });
+    conv.assignedTo = req.body?.adminName || null;
+    tenant.conversations.set(conv.id, conv);
+    io.to(`user:${req.userId}`).emit("inbox:update", [conv]);
+    res.json(conv);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.get("/api/me/admins", requireUser, async (req, res) => {
+  try {
+    res.json((await getTenant(req.userId)).admins);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.post("/api/me/admins", requireUser, async (req, res) => {
+  const name = (req.body?.name || "").trim();
+  if (!name) return res.status(400).json({ message: "name is required" });
+  try {
+    const tenant = await getTenant(req.userId);
+    if (!tenant.admins.includes(name)) tenant.admins.push(name);
+    res.json(tenant.admins);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.delete("/api/me/admins/:name", requireUser, async (req, res) => {
+  try {
+    const tenant = await getTenant(req.userId);
+    tenant.admins = tenant.admins.filter((a) => a !== decodeURIComponent(req.params.name));
+    res.json(tenant.admins);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+// Save/update a user's own Repliz keys (used from Pengaturan after signup).
+app.post("/api/me/repliz-keys", requireUser, async (req, res) => {
+  if (!pool) return res.status(500).json({ message: "database not configured" });
+  const { replizAccessKey, replizSecretKey } = req.body || {};
+  if (!replizAccessKey || !replizSecretKey) return res.status(400).json({ message: "Access key dan secret key wajib diisi" });
+  try {
+    await pool.query(`UPDATE users SET repliz_access_key = $1, repliz_secret_key_enc = $2 WHERE id = $3`, [
+      replizAccessKey,
+      encryptSecret(replizSecretKey),
+      req.userId,
+    ]);
+    tenants.delete(req.userId); // force a fresh client with the new keys next time
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ message: "Gagal menyimpan, coba lagi" });
+  }
+});
+
+// Personal webhook — each user configures their own URL in Repliz:
+// https://<your-railway-domain>/webhooks/repliz/<userId>
+app.post("/webhooks/repliz/:userId", async (req, res) => {
+  if (WEBHOOK_TOKEN && req.header("x-token") !== WEBHOOK_TOKEN) {
+    return res.status(401).json({ message: "invalid webhook token" });
+  }
+  try {
+    const tenant = await getTenant(Number(req.params.userId));
+    const { type, data } = req.body || {};
+    if (type === "comment" && data) {
+      const normalized = normalizeComment(data);
+      const conv = tenantUpsert(tenant, normalized);
+      io.to(`user:${tenant.userId}`).emit("inbox:update", [conv]);
+    }
+    res.status(200).json({ ok: true });
+  } catch (err) {
+    res.status(200).json({ ok: true });
+  }
+});
+
 const server = http.createServer(app);
 io = new Server(server, { cors: { origin: "*" } });
+
 
 io.on("connection", (socket) => {
   socket.emit("inbox:update", Array.from(store.conversations.values()));
   socket.emit("admins:update", store.admins);
+
+  // Personal (Fase 2) dashboards call this after connecting so they only
+  // receive updates for their own tenant, not the shared team data.
+  socket.on("join", (userId) => {
+    if (userId) socket.join(`user:${userId}`);
+  });
 });
 
 server.listen(PORT, () => {
