@@ -630,6 +630,8 @@ function tenantUpsert(tenant, conv) {
 }
 
 async function tenantPollOnce(tenant) {
+  let commentCount = 0;
+  let chatCount = 0;
   try {
     const commentDocs = await getAllPages((page) =>
       tenantRequest(tenant.client, { method: "GET", url: "/public/comment", params: { page, limit: 50, status: "pending" } })
@@ -646,12 +648,27 @@ async function tenantPollOnce(tenant) {
         c.shares = 0;
       }
     }
-    const changed = normalized.map((c) => tenantUpsert(tenant, c));
-    if (changed.length) io.to(`user:${tenant.userId}`).emit("inbox:update", changed);
-    console.log(`Tenant ${tenant.userId} poll ok — ${changed.length} comments`);
+    const changedComments = normalized.map((c) => tenantUpsert(tenant, c));
+    commentCount = changedComments.length;
+    if (changedComments.length) io.to(`user:${tenant.userId}`).emit("inbox:update", changedComments);
   } catch (err) {
-    console.warn(`Tenant ${tenant.userId} poll failed:`, err.response?.data?.message || err.message);
+    console.warn(`Tenant ${tenant.userId} comment poll failed:`, err.response?.data?.message || err.message);
   }
+
+  try {
+    const chatDocs = await getAllPages(
+      (page) => tenantRequest(tenant.client, { method: "GET", url: "/public/chat", params: { page, limit: 50 } }),
+      20
+    );
+    const changedChats = chatDocs.map(normalizeChat).map((c) => tenantUpsert(tenant, c));
+    chatCount = changedChats.length;
+    if (changedChats.length) io.to(`user:${tenant.userId}`).emit("inbox:update", changedChats);
+  } catch (err) {
+    // Most likely means this Repliz account isn't on Gold+ — don't fail the whole poll over it.
+    console.warn(`Tenant ${tenant.userId} chat poll skipped:`, err.response?.data?.message || err.message);
+  }
+
+  console.log(`Tenant ${tenant.userId} poll ok — ${commentCount} comments, ${chatCount} chats`);
 }
 
 function requireUser(req, res, next) {
@@ -678,11 +695,15 @@ app.post("/api/me/inbox/:id/reply", requireUser, async (req, res) => {
     let conv = tenant.conversations.get(req.params.id);
     if (!conv) {
       const [kind, replizId] = req.params.id.split(":");
-      if (kind !== "comment" || !replizId) return res.status(404).json({ message: "not found" });
-      conv = { id: req.params.id, kind: "comment", type: "comment", replizId, thread: [], status: "pending" };
+      if ((kind !== "comment" && kind !== "chat") || !replizId) return res.status(404).json({ message: "not found" });
+      conv = { id: req.params.id, kind, type: kind === "comment" ? "comment" : "dm", replizId, thread: [], status: "pending" };
     }
-    await tenantRequest(tenant.client, { method: "POST", url: `/public/comment/${conv.replizId}`, data: { text } });
-    await tenantRequest(tenant.client, { method: "PATCH", url: `/public/comment/${conv.replizId}/status`, data: { status: "resolved" } }).catch(() => {});
+    if (conv.kind === "comment") {
+      await tenantRequest(tenant.client, { method: "POST", url: `/public/comment/${conv.replizId}`, data: { text } });
+      await tenantRequest(tenant.client, { method: "PATCH", url: `/public/comment/${conv.replizId}/status`, data: { status: "resolved" } }).catch(() => {});
+    } else {
+      await tenantRequest(tenant.client, { method: "POST", url: `/public/chat/${conv.replizId}/message`, data: { type: "text", text } });
+    }
     conv.status = "replied";
     conv.thread.push({ from: "admin", text, time: new Date().toISOString() });
     tenant.conversations.set(conv.id, conv);
@@ -766,6 +787,18 @@ app.post("/webhooks/repliz/:userId", async (req, res) => {
     const { type, data } = req.body || {};
     if (type === "comment" && data) {
       const normalized = normalizeComment(data);
+      const conv = tenantUpsert(tenant, normalized);
+      io.to(`user:${tenant.userId}`).emit("inbox:update", [conv]);
+    } else if (type === "chat" && data?.chat) {
+      const normalized = normalizeChat(data.chat);
+      const existing = tenant.conversations.get(normalized.id);
+      normalized.thread = existing?.thread || [];
+      if (data.message) {
+        normalized.thread = [
+          ...normalized.thread,
+          { from: data.message.isFromMe ? "admin" : "contact", text: data.message.text, time: data.message.createdAt },
+        ];
+      }
       const conv = tenantUpsert(tenant, normalized);
       io.to(`user:${tenant.userId}`).emit("inbox:update", [conv]);
     }
