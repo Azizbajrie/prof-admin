@@ -278,7 +278,11 @@ function Dashboard({ onLogout, userId }) {
   // Load the inbox once on mount, then keep it live via WebSocket.
   useEffect(() => {
     fetch(apiPath("/inbox"), { headers: apiHeaders() })
-      .then((res) => res.json())
+      .then(async (res) => {
+        const docs = await res.json();
+        if (!res.ok) throw new Error(Array.isArray(docs) ? "" : docs.message || "failed");
+        return docs;
+      })
       .then((docs) => {
         setData(Array.isArray(docs) ? docs : []);
         setConnectionError(false);
@@ -286,6 +290,7 @@ function Dashboard({ onLogout, userId }) {
       })
       .catch(() => {
         setConnectionError(true);
+        setData([]);
         if (!isPersonal) {
           setData(CONVERSATIONS);
           setSelectedId(CONVERSATIONS[0].id);
@@ -294,6 +299,7 @@ function Dashboard({ onLogout, userId }) {
 
     const socket = io(API_URL);
     if (isPersonal) socket.emit("join", userId);
+    else socket.emit("join-team");
     socket.on("inbox:update", (changed) => {
       setData((prev) => {
         const map = new Map(prev.map((c) => [c.id, c]));
