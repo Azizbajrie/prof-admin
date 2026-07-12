@@ -336,6 +336,14 @@ function Dashboard({ onLogout, userId }) {
   }
 
   const accountNames = useMemo(() => Array.from(new Set(data.map((c) => c.account))), [data]);
+  const liveAccounts = useMemo(() => {
+    const seen = new Map(); // "account:platform" -> { name, platform }
+    data.forEach((c) => {
+      const key = `${c.account}:${c.platform}`;
+      if (!seen.has(key)) seen.set(key, { name: c.account, platform: c.platform, status: "connected" });
+    });
+    return Array.from(seen.values());
+  }, [data]);
 
   const filtered = useMemo(() => {
     return data
@@ -773,27 +781,29 @@ function Dashboard({ onLogout, userId }) {
       {view === "accounts" && (
         <div className="flex-1 overflow-y-auto p-6">
           <div className={`text-lg font-medium ${t.textStrong}`}>{s.accountsTitle}</div>
-          <div className={`text-xs mt-0.5 mb-5 ${t.textMuted}`}>{ACCOUNT_INTEGRATIONS.length} {s.accountsSub}</div>
-          <div className="grid grid-cols-3 gap-3">
-            {ACCOUNT_INTEGRATIONS.map((acc, i) => (
-              <div key={i} className={`rounded-xl border p-3.5 flex items-center gap-3 ${t.card}`}>
-                <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs shrink-0 ${t.bubbleContact}`}>
-                  {acc.name.slice(0, 2).toUpperCase()}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className={`truncate ${t.textBody}`}>{acc.name}</div>
-                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded border text-[11px] mt-1 ${platformChip(acc.platform, t)}`}>
-                    {platformLabel(acc.platform)}
-                  </span>
-                </div>
-                {acc.status === "connected" ? (
+          <div className={`text-xs mt-0.5 mb-5 ${t.textMuted}`}>{liveAccounts.length} {s.accountsSub}</div>
+          {liveAccounts.length === 0 ? (
+            <div className={`text-sm ${t.textMuted}`}>
+              {isPersonal ? s.notConnectedYet : s.noMatch}
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-3">
+              {liveAccounts.map((acc, i) => (
+                <div key={i} className={`rounded-xl border p-3.5 flex items-center gap-3 ${t.card}`}>
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs shrink-0 ${t.bubbleContact}`}>
+                    {acc.name.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className={`truncate ${t.textBody}`}>{acc.name}</div>
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded border text-[11px] mt-1 ${platformChip(acc.platform, t)}`}>
+                      {platformLabel(acc.platform)}
+                    </span>
+                  </div>
                   <CheckCircle2 className="w-4 h-4 text-orange-400 shrink-0" title={s.connected} />
-                ) : (
-                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" title={s.needsAttention} />
-                )}
-              </div>
-            ))}
-          </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
