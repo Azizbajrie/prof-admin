@@ -215,7 +215,7 @@ function normalizeComment(doc) {
     status: doc.status === "resolved" ? "replied" : "pending",
     time: doc.comment?.createdAt,
     likes: 0,
-    comments: doc.content?.statistic?.comment ?? 0,
+    comments: Number(doc.content?.statistic?.comment) || 0,
     shares: 0,
     contentId: doc.content?.id || null,
     post: doc.content
@@ -266,9 +266,9 @@ async function enrichWithStatistics(comments) {
       seen.set(key, stat);
     }
     const stat = seen.get(key);
-    c.likes = stat.like ?? 0;
-    c.shares = stat.share ?? 0;
-    if (stat.comment != null) c.comments = stat.comment;
+    c.likes = Number(stat.like) || 0;
+    c.shares = Number(stat.share) || 0;
+    if (typeof stat.comment === "number") c.comments = stat.comment;
   }
   return comments;
 }
