@@ -270,7 +270,7 @@ function Dashboard({ onLogout, userId }) {
   const [connectionError, setConnectionError] = useState(false);
   const [showPost, setShowPost] = useState(true);
   const [period, setPeriod] = useState("all");
-  const [admins, setAdmins] = useState(DEFAULT_ADMINS);
+  const [admins, setAdmins] = useState(isPersonal ? [] : DEFAULT_ADMINS);
   const [newAdminName, setNewAdminName] = useState("");
   const [replizKeysForm, setReplizKeysForm] = useState({ replizAccessKey: "", replizSecretKey: "" });
   const [replizKeysStatus, setReplizKeysStatus] = useState(null);
@@ -296,6 +296,11 @@ function Dashboard({ onLogout, userId }) {
           setSelectedId(CONVERSATIONS[0].id);
         }
       });
+
+    fetch(apiPath("/admins"), { headers: apiHeaders() })
+      .then((res) => res.json())
+      .then((list) => Array.isArray(list) && setAdmins(list))
+      .catch(() => {});
 
     const socket = io(API_URL);
     if (isPersonal) socket.emit("join", userId);
@@ -499,9 +504,23 @@ function Dashboard({ onLogout, userId }) {
     ];
   }, [periodData, s]);
 
+  const [bestContentPeriod, setBestContentPeriod] = useState("week");
+  const bestContentData = useMemo(() => {
+    if (bestContentPeriod === "all") return data;
+    const now = new Date();
+    const cutoff =
+      bestContentPeriod === "today"
+        ? new Date(now.getFullYear(), now.getMonth(), now.getDate())
+        : new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    return data.filter((c) => {
+      const t = new Date(c.time);
+      return !isNaN(t) && t >= cutoff;
+    });
+  }, [data, bestContentPeriod]);
+
   const bestContent = useMemo(
-    () => [...periodData].sort((a, b) => (b.likes + b.comments + b.shares) - (a.likes + a.comments + a.shares)).slice(0, 10),
-    [periodData]
+    () => [...bestContentData].sort((a, b) => (b.likes + b.comments + b.shares) - (a.likes + a.comments + a.shares)).slice(0, 10),
+    [bestContentData]
   );
 
   const navItems = [
@@ -738,8 +757,35 @@ function Dashboard({ onLogout, userId }) {
           </div>
 
           <div className={`rounded-xl border p-4 ${t.card}`}>
-            <div className={`text-xs mb-3 flex items-center gap-1.5 ${t.textMuted}`}>
-              <Trophy className="w-3.5 h-3.5 text-orange-400" /> {s.bestContent}
+            <div className="flex items-center justify-between mb-3">
+              <div className={`text-xs flex items-center gap-1.5 ${t.textMuted}`}>
+                <Trophy className="w-3.5 h-3.5 text-orange-400" /> {s.bestContent}
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex gap-1">
+                  {[
+                    { key: "week", label: s.periodWeek },
+                    { key: "all", label: s.periodAll },
+                  ].map((p) => (
+                    <button
+                      key={p.key}
+                      onClick={() => setBestContentPeriod(p.key)}
+                      className={`px-2 py-0.5 rounded-full border text-[11px] ${
+                        bestContentPeriod === p.key ? "bg-orange-950 border-orange-800 text-orange-300" : `border-transparent ${t.textMuted}`
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+                <span className="inline-flex items-center gap-1.5 text-[11px] text-orange-400">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-orange-500" />
+                  </span>
+                  Live
+                </span>
+              </div>
             </div>
             <div className="flex flex-col gap-2.5 max-h-[196px] overflow-y-auto pr-1">
               {bestContent.map((c, i) => {
