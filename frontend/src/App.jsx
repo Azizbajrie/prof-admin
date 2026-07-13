@@ -232,6 +232,23 @@ const PLATFORM_COLORS = {
 function platformLabel(p) { return PLATFORM_NAMES[p] || (p ? p[0].toUpperCase() + p.slice(1) : "Lainnya"); }
 function platformChip(p, t) { return p === "instagram" ? t.chipInstagram : t.chipThreads; }
 
+// Formats an ISO timestamp into 24-hour WIB (UTC+7) time, e.g. "10 Jul 20:54".
+// Falls back to the raw value for non-ISO strings like "now" or mock "14:20".
+function formatWIB(value) {
+  if (!value || value === "now") return value === "now" ? "Baru saja" : value;
+  const date = new Date(value);
+  if (isNaN(date)) return value;
+  const wib = new Date(date.getTime() + 7 * 60 * 60 * 1000);
+  const day = String(wib.getUTCDate()).padStart(2, "0");
+  const months = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+  const month = months[wib.getUTCMonth()];
+  const hours = String(wib.getUTCHours()).padStart(2, "0");
+  const minutes = String(wib.getUTCMinutes()).padStart(2, "0");
+  const now = new Date(Date.now() + 7 * 60 * 60 * 1000);
+  const isToday = wib.getUTCFullYear() === now.getUTCFullYear() && wib.getUTCMonth() === now.getUTCMonth() && wib.getUTCDate() === now.getUTCDate();
+  return isToday ? `${hours}:${minutes} WIB` : `${day} ${month} ${hours}:${minutes} WIB`;
+}
+
 function TypeIcon({ type, className }) {
   return type === "dm" ? <Mail className={className} /> : <MessageCircle className={className} />;
 }
@@ -1069,7 +1086,7 @@ function Dashboard({ onLogout, userId }) {
                           <span className={`truncate ${c.unread ? `font-medium ${t.textStrong}` : t.textBody}`}>
                             {c.contact}
                           </span>
-                          <span className={`text-xs shrink-0 ${t.textMuted}`}>{c.time}</span>
+                          <span className={`text-xs shrink-0 ${t.textMuted}`}>{formatWIB(c.time)}</span>
                         </div>
                         <div className={`text-xs truncate mb-1.5 flex items-center gap-1.5 ${t.textMuted}`}>
                           via {c.account}
@@ -1172,7 +1189,7 @@ function Dashboard({ onLogout, userId }) {
                       >
                         {m.text}
                       </div>
-                      <div className={`text-[11px] mt-1 ${t.textMuted} ${m.from === "admin" ? "text-right" : "text-left"}`}>{m.time}</div>
+                      <div className={`text-[11px] mt-1 ${t.textMuted} ${m.from === "admin" ? "text-right" : "text-left"}`}>{formatWIB(m.time)}</div>
                     </div>
                   ))}
                 </div>
