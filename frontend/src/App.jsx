@@ -825,7 +825,7 @@ function Dashboard({ onLogout, userId }) {
                     </div>
                     <div className="flex items-center gap-3 text-xs shrink-0">
                       <span className="flex items-center gap-1 text-pink-400"><Heart className="w-3 h-3" />{c.likes}</span>
-                      <span className="flex items-center gap-1 text-orange-400"><MessageCircle className="w-3 h-3" />{c.comments}</span>
+                      <span className="flex items-center gap-1 text-orange-400"><MessageCircle className="w-3 h-3" />{c.comments ?? 0}</span>
                       <span className="flex items-center gap-1 text-amber-400"><Share2 className="w-3 h-3" />{c.shares}</span>
                     </div>
                     {url ? (
