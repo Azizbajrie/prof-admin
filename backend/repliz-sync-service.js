@@ -615,7 +615,7 @@ async function tenantRequest(client, config, attempt = 1) {
 async function getTenant(userId) {
   if (tenants.has(userId)) return tenants.get(userId);
   const client = await makeTenantClient(userId);
-  const tenant = { client, conversations: new Map(), admins: ["Admin"], userId };
+  const tenant = { client, conversations: new Map(), admins: [], userId };
   tenants.set(userId, tenant);
   tenantPollOnce(tenant); // fire the first poll immediately, don't wait
   tenant.pollInterval = setInterval(() => tenantPollOnce(tenant), POLL_INTERVAL_MS);
@@ -824,8 +824,15 @@ io.on("connection", (socket) => {
 
   // Personal (Fase 2) dashboards call this after connecting so they only
   // receive updates for their own tenant, not the shared team data.
-  socket.on("join", (userId) => {
-    if (userId) socket.join(`user:${userId}`);
+  socket.on("join", async (userId) => {
+    if (!userId) return;
+    socket.join(`user:${userId}`);
+    try {
+      const tenant = await getTenant(userId);
+      socket.emit("admins:update", tenant.admins);
+    } catch {
+      // Repliz keys not set up yet — nothing to send.
+    }
   });
 });
 
